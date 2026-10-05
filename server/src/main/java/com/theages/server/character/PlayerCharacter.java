@@ -40,15 +40,19 @@ public class PlayerCharacter {
     @Column(nullable = false)
     private int hp;
 
+    @Column(nullable = false)
+    private int gold;
+
     protected PlayerCharacter() {
     }
 
-    public PlayerCharacter(Long accountId, String name, String zoneId, float posX, float posZ) {
+    public PlayerCharacter(Long accountId, String name, String zoneId, float posX, float posZ, int gold) {
         this.accountId = accountId;
         this.name = name;
         this.zoneId = zoneId;
         this.posX = posX;
         this.posZ = posZ;
+        this.gold = gold;
     }
 
     public Long getId() {
@@ -87,12 +91,17 @@ public class PlayerCharacter {
         return hp;
     }
 
-    public void update(String zoneId, float posX, float posZ, int level, int exp, int hp) {
+    public int getGold() {
+        return gold;
+    }
+
+    public void update(String zoneId, float posX, float posZ, int level, int exp, int hp, int gold) {
         this.zoneId = zoneId;
         this.posX = posX;
         this.posZ = posZ;
         this.level = level;
         this.exp = exp;
         this.hp = hp;
+        this.gold = gold;
     }
 }

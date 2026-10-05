@@ -5,11 +5,13 @@ theages:
 
     # 新角色出生時身上的物品（裝備類會自動穿上）
     starting-items: [wooden-sword, cloth-shirt]
+    starting-gold: 30
 
     # 物品模板。
     #   type        equipment（裝備）、consumable（消耗品）、misc（材料雜物）
     #   slot        裝備欄位：weapon、head、body、feet
     #   heal        消耗品使用後回復的生命
+    #   value       物品價值（銅錢）：商店售價預設為 value，收購價為 value × 商店的 buy-rate
     #   max-stack   同一格最多疊幾個（裝備固定 1，其他預設 20）
     item-templates:
       - id: wooden-sword
@@ -17,6 +19,7 @@ theages:
         keywords: [sword]
         description: 一把用老橡木削成的練習劍，劍身上還留著刀痕。
         type: equipment
+        value: 6
         slot: weapon
         attack: 2
       - id: cloth-shirt
@@ -24,6 +27,7 @@ theages:
         keywords: [shirt, cloth]
         description: 粗麻布縫製的上衣，穿起來有點刺刺的。
         type: equipment
+        value: 4
         slot: body
         defense: 1
       - id: wolf-fang-dagger
@@ -31,6 +35,7 @@ theages:
         keywords: [dagger]
         description: 以狼牙磨成的短刃，鋒利得能劃開皮革。
         type: equipment
+        value: 60
         slot: weapon
         attack: 6
       - id: wolf-pelt-vest
@@ -38,6 +43,7 @@ theages:
         keywords: [vest]
         description: 用整張狼皮縫成的背心，厚實又保暖。
         type: equipment
+        value: 80
         slot: body
         defense: 4
         max-hp: 10
@@ -46,6 +52,7 @@ theages:
         keywords: [cap, hat]
         description: 一頂簡單的皮帽，能擋住從樹上掉下來的松果。
         type: equipment
+        value: 35
         slot: head
         defense: 2
       - id: straw-sandals
@@ -53,6 +60,7 @@ theages:
         keywords: [sandals, shoes]
         description: 稻草編成的草鞋，走起路來沙沙作響。
         type: equipment
+        value: 14
         slot: feet
         defense: 1
         max-hp: 5
@@ -61,28 +69,62 @@ theages:
         keywords: [meat]
         description: 一塊新鮮的兔肉，烤一烤應該很香。
         type: consumable
+        value: 4
         heal: 15
       - id: egg
         name: 雞蛋
         keywords: [egg]
         description: 一顆還帶著餘溫的雞蛋。
         type: consumable
+        value: 3
         heal: 8
       - id: rabbit-fur
         name: 兔毛
         keywords: [fur]
         description: 一撮柔軟的兔毛，村裡的裁縫也許用得上。
         type: misc
+        value: 6
       - id: feather
         name: 雞毛
         keywords: [feather]
         description: 一根雞毛，拿來搔癢剛剛好。
         type: misc
+        value: 2
       - id: wolf-pelt
         name: 狼皮
         keywords: [pelt]
         description: 一張粗硬的灰色狼皮。
         type: misc
+        value: 24
+      - id: herb
+        name: 止血草
+        keywords: [herb]
+        description: 一把曬乾的止血草，嚼一嚼可以止住小傷口的血。
+        type: consumable
+        value: 10
+        heal: 25
+      - id: wound-salve
+        name: 金創藥
+        keywords: [salve, potion]
+        description: 一小罐氣味刺鼻的藥膏，行走江湖的人身上總會帶上幾罐。
+        type: consumable
+        value: 30
+        heal: 60
+
+    # 商店：由商人 NPC 的 shop 欄位引用。
+    #   buy-rate    收購價 = 物品 value × buy-rate（至少 1 枚）
+    #   buys        收購的物品類型；想讓商人也收裝備就加上 equipment
+    #   sells       販賣的物品；price 可覆寫售價，未指定時為物品 value
+    shops:
+      - id: general-store
+        name: 陳記雜貨
+        buy-rate: 0.5
+        buys: [misc]
+        sells:
+          - { item: herb }
+          - { item: wound-salve }
+          - { item: wooden-sword }
+          - { item: straw-sandals, price: 20 }
 
     # NPC 模板：同一模板可以在多個區域重複放置。
     #   keywords        kill/look 指令可用的英文代稱（MUD 傳統）
@@ -90,6 +132,8 @@ theages:
     #   aggressive      true = 玩家靠近時主動攻擊
     #   wander-radius   閒晃時離出生點的最遠距離
     #   loot            掉寶表：每列獨立擲骰，chance 為 0～1 的機率，min/max 為數量
+    #   gold-min/max    擊殺後搜出的銅錢（直接進玩家口袋）
+    #   shop            有值的 NPC 是商人：不能攻擊，點擊會打開商店
     npc-templates:
       - id: rabbit
         name: 野兔
@@ -105,6 +149,8 @@ theages:
         aggressive: false
         respawn-seconds: 15
         wander-radius: 5
+        gold-min: 0
+        gold-max: 2
         loot:
           - { item: rabbit-meat, chance: 0.6 }
           - { item: rabbit-fur, chance: 0.4, min: 1, max: 2 }
@@ -124,6 +170,8 @@ theages:
         aggressive: false
         respawn-seconds: 10
         wander-radius: 4
+        gold-min: 0
+        gold-max: 1
         loot:
           - { item: egg, chance: 0.5, min: 1, max: 2 }
           - { item: feather, chance: 0.5, min: 1, max: 3 }
@@ -143,11 +191,29 @@ theages:
         aggressive: true
         respawn-seconds: 30
         wander-radius: 6
+        gold-min: 4
+        gold-max: 10
         loot:
           - { item: wolf-pelt, chance: 0.5 }
           - { item: wolf-fang-dagger, chance: 0.15 }
           - { item: wolf-pelt-vest, chance: 0.1 }
           - { item: leather-cap, chance: 0.1 }
+
+      - id: shopkeeper-chen
+        name: 陳老闆
+        keywords: [chen, shopkeeper, merchant]
+        description: 雜貨店的陳老闆，圓圓的臉上總是掛著笑，算盤打得比誰都快。
+        level: 10
+        max-hp: 999
+        attack: 0
+        defense: 0
+        exp: 0
+        speed: 0
+        verb: 拍了拍
+        aggressive: false
+        respawn-seconds: 10
+        wander-radius: 0
+        shop: general-store
 
     zones:
       - id: newbie-village
@@ -156,6 +222,8 @@ theages:
         size: 60
         spawn: { x: 0, z: 0 }
         npcs:
+          # 古井旁的雜貨店
+          - { template: shopkeeper-chen, x: 3, z: -2 }
           - { template: chicken, x: -6, z: 6, count: 3 }
           - { template: rabbit, x: 12, z: -8, count: 4 }
           - { template: rabbit, x: -14, z: -12, count: 3 }

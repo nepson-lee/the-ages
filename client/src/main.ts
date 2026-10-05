@@ -5,6 +5,7 @@ import { GameConnection } from "./net/connection";
 import { GameConsole } from "./ui/console";
 import { Hud } from "./ui/hud";
 import { InventoryPanel } from "./ui/inventory";
+import { ShopPanel } from "./ui/shop";
 import { showLogin } from "./ui/login";
 
 const TOKEN_KEY = "theages.token";
@@ -27,12 +28,14 @@ function start(token: string): void {
     onGroundClick: (x, z) => connection?.moveTo(x, z),
     onEntityClick: (id) => connection?.attack(id),
     onItemClick: (id) => connection?.command(`get #${id}`),
+    onMerchantClick: (id) => connection?.command(`list #${id}`),
   });
   const hud = new Hud();
   const gameConsole = new GameConsole((text) => connection?.command(text));
   const inventory = new InventoryPanel((command) => connection?.command(command));
   hud.onInventoryClick(() => inventory.toggle());
-  root.querySelector(".game")!.append(hud.element, gameConsole.element, inventory.element);
+  const shop = new ShopPanel((command) => connection?.command(command));
+  root.querySelector(".game")!.append(hud.element, gameConsole.element, inventory.element, shop.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -55,9 +58,17 @@ function start(token: string): void {
           break;
         case "selfStats":
           hud.setStats(p.value);
+          shop.setGold(p.value.gold);
           break;
         case "inventory":
           inventory.update(p.value);
+          shop.setInventory(p.value); // 伺服器接著會重送 ShopView，屆時重畫
+          break;
+        case "shop":
+          shop.show(p.value);
+          break;
+        case "shopClosed":
+          shop.close();
           break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);
@@ -67,6 +78,7 @@ function start(token: string): void {
     onClose: (reason) => {
       activeConsole = null;
       activeInventory = null;
+      activeShop = null;
       view.dispose();
       storage()?.removeItem(TOKEN_KEY);
       showLogin(root, start, reason);
@@ -75,10 +87,12 @@ function start(token: string): void {
 
   activeConsole = gameConsole;
   activeInventory = inventory;
+  activeShop = shop;
 }
 
 let activeConsole: GameConsole | null = null;
 let activeInventory: InventoryPanel | null = null;
+let activeShop: ShopPanel | null = null;
 // 指令列有焦點時按鍵不會傳到這裡（console.ts 會 stopPropagation）
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
@@ -87,6 +101,7 @@ window.addEventListener("keydown", (ev) => {
     activeInventory?.toggle();
   } else if (ev.key === "Escape") {
     activeInventory?.toggle(false);
+    activeShop?.close();
   }
 });
 

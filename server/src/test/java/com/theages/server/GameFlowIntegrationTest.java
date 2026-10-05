@@ -71,12 +71,16 @@ class GameFlowIntegrationTest {
             .anyMatch(e -> e.getKind() == com.theages.protocol.v1.EntityKind.ENTITY_KIND_NPC && e.getModel().equals("wolf"));
 
         ServerMessage inventory = null;
-        for (ServerMessage msg; (msg = received.poll(5, TimeUnit.SECONDS)) != null; ) {
+        ServerMessage stats = null;
+        for (ServerMessage msg; (inventory == null || stats == null) && (msg = received.poll(5, TimeUnit.SECONDS)) != null; ) {
             if (msg.hasInventory()) {
                 inventory = msg;
-                break;
+            } else if (msg.hasSelfStats()) {
+                stats = msg;
             }
         }
+        assertThat(stats).isNotNull();
+        assertThat(stats.getSelfStats().getGold()).as("出生銅錢").isEqualTo(30);
         assertThat(inventory).as("進場後會收到背包").isNotNull();
         assertThat(inventory.getInventory().getItemsList())
             .as("出生裝備已穿上")

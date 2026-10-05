@@ -14,18 +14,24 @@ public final class PlayerEntity extends Entity {
     private final Inventory inventory;
     private PlayerConnection connection;
     private int exp;
+    private int gold;
 
     /** 正在走過去撿的地上物品；null = 沒有。 */
     GroundItem pendingPickup;
+    /** 正在走過去交易的商人；null = 沒有。 */
+    NpcEntity pendingShop;
+    /** 目前開著商店畫面的商人；null = 沒開。 */
+    NpcEntity openShop;
     /** 下一次可以使用消耗品的 tick。 */
     long nextUseTick;
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
-                 int level, int exp, int hp, Inventory inventory) {
+                 int level, int exp, int hp, int gold, Inventory inventory) {
         super(id, name, x, z);
         this.characterId = characterId;
         this.connection = connection;
         this.exp = exp;
+        this.gold = Math.max(0, gold);
         this.inventory = inventory;
         applyLevel(Math.max(1, level));
         setHp(hp <= 0 ? maxHp : hp);
@@ -33,7 +39,7 @@ public final class PlayerEntity extends Entity {
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
                  int level, int exp, int hp) {
-        this(id, characterId, name, connection, x, z, level, exp, hp, new Inventory());
+        this(id, characterId, name, connection, x, z, level, exp, hp, 0, new Inventory());
     }
 
     // ===== 等級公式（之後可移到內容檔） =====
@@ -92,6 +98,21 @@ public final class PlayerEntity extends Entity {
         return lost;
     }
 
+    void addGold(int amount) {
+        gold += amount;
+        markStatsDirty();
+    }
+
+    /** 扣錢；不夠就不扣並回傳 false。 */
+    boolean spendGold(int amount) {
+        if (amount > gold) {
+            return false;
+        }
+        gold -= amount;
+        markStatsDirty();
+        return true;
+    }
+
     SelfStats toSelfStats() {
         return SelfStats.newBuilder()
             .setLevel(level)
@@ -101,11 +122,12 @@ public final class PlayerEntity extends Entity {
             .setMaxHp(maxHp)
             .setAttack(attack)
             .setDefense(defense)
+            .setGold(gold)
             .build();
     }
 
     CharacterSnapshot snapshot(String zoneId) {
-        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), inventory.toRecords());
+        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), gold, inventory.toRecords());
     }
 
     void replaceConnection(PlayerConnection newConnection) {
@@ -143,5 +165,9 @@ public final class PlayerEntity extends Entity {
 
     public int exp() {
         return exp;
+    }
+
+    public int gold() {
+        return gold;
     }
 }

@@ -11,13 +11,13 @@ import org.junit.jupiter.api.Test;
 class InventoryTest {
 
     static final ItemTemplate SWORD = new ItemTemplate("sword", "木劍", List.of("sword"), "", ItemType.EQUIPMENT,
-        EquipSlot.WEAPON, 2, 0, 0, 0, null);
+        EquipSlot.WEAPON, 2, 0, 0, 0, 0, null);
     static final ItemTemplate DAGGER = new ItemTemplate("dagger", "匕首", List.of("dagger"), "", ItemType.EQUIPMENT,
-        EquipSlot.WEAPON, 6, 0, 0, 0, null);
+        EquipSlot.WEAPON, 6, 0, 0, 0, 0, null);
     static final ItemTemplate VEST = new ItemTemplate("vest", "背心", List.of("vest"), "", ItemType.EQUIPMENT,
-        EquipSlot.BODY, 0, 4, 10, 0, null);
+        EquipSlot.BODY, 0, 4, 10, 0, 0, null);
     static final ItemTemplate MEAT = new ItemTemplate("meat", "兔肉", List.of("meat"), "", ItemType.CONSUMABLE,
-        null, 0, 0, 0, 15, 5);
+        null, 0, 0, 0, 15, 0, 5);
 
     @Test
     void stacksUpToMaxStackThenOpensNewSlots() {
@@ -135,7 +135,7 @@ class InventoryTest {
     @Test
     void equipmentNeverStacks() {
         assertThat(SWORD.maxStack()).isEqualTo(1);
-        assertThatThrownBy(() -> new ItemTemplate("x", "x", null, "", ItemType.EQUIPMENT, null, 0, 0, 0, 0, null))
+        assertThatThrownBy(() -> new ItemTemplate("x", "x", null, "", ItemType.EQUIPMENT, null, 0, 0, 0, 0, 0, null))
             .isInstanceOf(IllegalArgumentException.class);
     }
 }

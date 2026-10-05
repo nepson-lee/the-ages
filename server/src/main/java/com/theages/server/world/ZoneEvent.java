@@ -9,7 +9,7 @@ public sealed interface ZoneEvent {
     PlayerConnection connection();
 
     record Join(PlayerConnection connection, long characterId, String name, float x, float z,
-                int level, int exp, int hp, List<ItemRecord> items) implements ZoneEvent {
+                int level, int exp, int hp, int gold, List<ItemRecord> items) implements ZoneEvent {
     }
 
     record Leave(PlayerConnection connection) implements ZoneEvent {

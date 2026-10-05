@@ -62,11 +62,23 @@ function wolf(): Model {
   return { object: g, labelHeight: 1.6 };
 }
 
+function shopkeeper(): Model {
+  const g = new THREE.Group();
+  g.add(
+    mesh(new THREE.CapsuleGeometry(0.42, 0.8, 4, 12), 0x8a5a3c, 0, 0.82, 0),
+    // 圍裙
+    mesh(new THREE.BoxGeometry(0.62, 0.6, 0.1), 0xe8dcc0, 0, 0.75, 0.38),
+    // 瓜皮帽
+    mesh(new THREE.SphereGeometry(0.28, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0x2f2a3a, 0, 1.5, 0),
+  );
+  return { object: g, labelHeight: 2.1 };
+}
+
 function unknown(): Model {
   return { object: mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), 0x8a4fbf, 0, 0.3, 0), labelHeight: 1.2 };
 }
 
-const NPC_MODELS: Record<string, () => Model> = { rabbit, chicken, wolf };
+const NPC_MODELS: Record<string, () => Model> = { rabbit, chicken, wolf, "shopkeeper-chen": shopkeeper };
 
 /**
  * 地上的物品：統一用小布袋表示，顏色依物品 id 決定（同一種物品永遠同色）。

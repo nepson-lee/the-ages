@@ -12,6 +12,7 @@ import com.theages.server.world.item.ItemRecord;
 import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.ItemType;
 import com.theages.server.world.item.LootEntry;
+import com.theages.server.world.item.ShopDefinition;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,24 +26,31 @@ class ZoneTest {
 
     /** 不會動、容易打死的練習假人。 */
     private static final NpcTemplate DUMMY = new NpcTemplate("dummy", "木人", List.of("dummy"), "一具木人。",
-        1, 10, 3, 0, 50, 3f, "敲了", false, 2, 0f, List.of());
+        1, 10, 3, 0, 50, 3f, "敲了", false, 2, 0f, List.of(), 3, 3, null);
     /** 一擊必殺的主動攻擊型 NPC。 */
     private static final NpcTemplate KILLER = new NpcTemplate("killer", "惡狼", List.of("wolf"), "很兇。",
-        1, 1000, 100, 0, 1, 3f, "撲咬了", true, 30, 0f, List.of());
+        1, 1000, 100, 0, 1, 3f, "撲咬了", true, 30, 0f, List.of(), 0, 0, null);
     /** 很耐打、跑得比玩家慢的 NPC，用來測試脫戰。 */
     private static final NpcTemplate TANK = new NpcTemplate("tank", "老龜", List.of("turtle"), "很硬。",
-        1, 1000, 1, 0, 1, 3f, "咬了", false, 30, 0f, List.of());
+        1, 1000, 1, 0, 1, 3f, "咬了", false, 30, 0f, List.of(), 0, 0, null);
     /** 一定掉一把匕首和兩塊肉的木人。 */
     private static final NpcTemplate PINATA = new NpcTemplate("pinata", "寶箱怪", List.of("pinata"), "裝滿東西。",
         1, 1, 0, 0, 1, 3f, "撞了", false, 30, 0f,
-        List.of(new LootEntry("dagger", 1.0, null, null), new LootEntry("meat", 1.0, 2, 2)));
+        List.of(new LootEntry("dagger", 1.0, null, null), new LootEntry("meat", 1.0, 2, 2)), 0, 0, null);
 
     private static final ItemTemplate DAGGER = new ItemTemplate("dagger", "匕首", List.of("dagger"), "很利。",
-        ItemType.EQUIPMENT, EquipSlot.WEAPON, 6, 0, 0, 0, null);
+        ItemType.EQUIPMENT, EquipSlot.WEAPON, 6, 0, 0, 0, 60, null);
     private static final ItemTemplate VEST = new ItemTemplate("vest", "背心", List.of("vest"), "很暖。",
-        ItemType.EQUIPMENT, EquipSlot.BODY, 0, 4, 10, 0, null);
+        ItemType.EQUIPMENT, EquipSlot.BODY, 0, 4, 10, 0, 80, null);
     private static final ItemTemplate MEAT = new ItemTemplate("meat", "兔肉", List.of("meat"), "好吃。",
-        ItemType.CONSUMABLE, null, 0, 0, 0, 15, null);
+        ItemType.CONSUMABLE, null, 0, 0, 0, 15, 4, null);
+
+    /** 收購消耗品（半價）、販賣兔肉（特價 7）與匕首的商店。 */
+    private static final ShopDefinition STORE = new ShopDefinition("store", "測試商店", 0.5,
+        List.of(ItemType.CONSUMABLE),
+        List.of(new ShopDefinition.ShopListing("meat", 7), new ShopDefinition.ShopListing("dagger", null)));
+    private static final NpcTemplate SHOPKEEPER = new NpcTemplate("shopkeeper", "老闆", List.of("boss"), "笑咪咪。",
+        10, 999, 0, 0, 0, 0f, "拍了", false, 10, 0f, List.of(), 0, 0, "store");
 
     private final List<CharacterSnapshot> saves = new ArrayList<>();
 
@@ -63,12 +71,15 @@ class ZoneTest {
         ZoneDefinition def = new ZoneDefinition("test", "測試區", "空曠的平原。", 60,
             new ZoneDefinition.Point(0, 0), List.of(npcs));
         AtomicInteger ids = new AtomicInteger(1);
-        return new Zone(def, Map.of("dummy", DUMMY, "killer", KILLER, "tank", TANK, "pinata", PINATA),
-            Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT), TICK_RATE, ids::getAndIncrement, saves::add, ALWAYS_HIT);
+        WorldContent content = new WorldContent(
+            Map.of("dummy", DUMMY, "killer", KILLER, "tank", TANK, "pinata", PINATA, "shopkeeper", SHOPKEEPER),
+            Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT),
+            Map.of("store", STORE));
+        return new Zone(def, content, TICK_RATE, ids::getAndIncrement, saves::add, ALWAYS_HIT);
     }
 
     private static ZoneEvent.Join join(PlayerConnection c, long characterId, String name, float x, float z) {
-        return new ZoneEvent.Join(c, characterId, name, x, z, 1, 0, 0, List.of());
+        return new ZoneEvent.Join(c, characterId, name, x, z, 1, 0, 0, 0, List.of());
     }
 
     private static void run(Zone zone, int ticks) {
@@ -161,13 +172,13 @@ class ZoneTest {
     void leavePersistsCharacterProgress() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 42, "alice", 0, 0, 3, 77, 0, // hp 0 = 滿血
+        zone.enqueue(new ZoneEvent.Join(alice, 42, "alice", 0, 0, 3, 77, 0, 0, // hp 0 = 滿血、沒有錢
             List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false))));
         zone.tick();
         zone.enqueue(new ZoneEvent.Leave(alice));
         zone.tick();
 
-        assertThat(saves).containsExactly(new CharacterSnapshot(42, "test", 0, 0, 3, 77, PlayerEntity.maxHpFor(3),
+        assertThat(saves).containsExactly(new CharacterSnapshot(42, "test", 0, 0, 3, 77, PlayerEntity.maxHpFor(3), 0,
             List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false))));
     }
 
@@ -219,7 +230,7 @@ class ZoneTest {
     void aggressiveNpcKillsPlayerWhoRespawnsWithExpPenalty() {
         Zone zone = zone(new ZoneDefinition.NpcSpawn("killer", 22, 0, 1));
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 20, 0, 1, 50, 0, List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 20, 0, 1, 50, 0, 0, List.of()));
         run(zone, 2 * TICK_RATE);
 
         PlayerEntity p = entity(zone, PlayerEntity.class);
@@ -342,7 +353,7 @@ class ZoneTest {
     void getWalksToFarItemThenPicksItUp() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, List.of(new ItemRecord("meat", 1, false))));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false))));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop meat"));
         zone.tick();
         assertThat(zone.groundItems()).hasSize(1);
@@ -361,7 +372,7 @@ class ZoneTest {
     void wearingEquipmentChangesStatsAndSwaps() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0,
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0,
             List.of(new ItemRecord("dagger", 1, false), new ItemRecord("vest", 1, false))));
         zone.tick();
         PlayerEntity p = entity(zone, PlayerEntity.class);
@@ -386,7 +397,7 @@ class ZoneTest {
     void cannotDropEquippedItem() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, List.of(new ItemRecord("dagger", 1, true))));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("dagger", 1, true))));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop dagger"));
         zone.tick();
 
@@ -398,7 +409,7 @@ class ZoneTest {
     void eatingHealsWithCooldownAndConsumesItem() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 10, List.of(new ItemRecord("meat", 3, false))));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 10, 0, List.of(new ItemRecord("meat", 3, false))));
         zone.tick();
         PlayerEntity p = entity(zone, PlayerEntity.class);
         int before = p.hp();
@@ -416,7 +427,7 @@ class ZoneTest {
     void eatingAtFullHealthIsRefused() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, List.of(new ItemRecord("meat", 1, false))));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false))));
         zone.enqueue(new ZoneEvent.CommandText(alice, "eat meat"));
         zone.tick();
 
@@ -427,7 +438,7 @@ class ZoneTest {
     void groundItemsDespawn() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, List.of(new ItemRecord("meat", 1, false))));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false))));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop meat"));
         zone.tick();
         int id = zone.groundItems().iterator().next().id();
@@ -451,6 +462,130 @@ class ZoneTest {
         zone.tick();
         assertThat(alice.texts()).contains("你身上的東西太多了，拿不下匕首。");
         assertThat(zone.groundItems()).hasSize(2);
+    }
+
+    // ===== 金錢與商店 =====
+
+    private static ZoneEvent.Join rich(PlayerConnection c, float x, int gold, ItemRecord... items) {
+        return new ZoneEvent.Join(c, 1, "alice", x, 0, 1, 0, 0, gold, List.of(items));
+    }
+
+    @Test
+    void killingNpcGivesGold() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("dummy", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 10));
+        zone.tick();
+        zone.enqueue(new ZoneEvent.Attack(alice, entity(zone, NpcEntity.class).id()));
+        run(zone, TICK_RATE + 1);
+
+        assertThat(entity(zone, PlayerEntity.class).gold()).isEqualTo(13);
+        assertThat(alice.texts()).contains("你從木人身上搜出了 3 枚銅錢。");
+        assertThat(alice.sent).anyMatch(m -> m.hasSelfStats() && m.getSelfStats().getGold() == 13);
+    }
+
+    @Test
+    void buyingSpendsGoldAndRefreshesShop() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 100));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "list"));
+        zone.tick();
+        assertThat(alice.sent).anyMatch(m -> m.hasShop() && m.getShop().getOffersCount() == 2);
+
+        alice.sent.clear();
+        zone.enqueue(new ZoneEvent.CommandText(alice, "buy meat 3"));
+        zone.tick();
+
+        PlayerEntity p = entity(zone, PlayerEntity.class);
+        assertThat(p.gold()).isEqualTo(100 - 3 * 7);
+        assertThat(p.inventory().find("meat", false).orElseThrow().quantity()).isEqualTo(3);
+        assertThat(alice.texts()).contains("你花了 21 枚銅錢，向老闆買了兔肉 ×3。");
+        assertThat(alice.sent).as("背包變了，商店重送（含收購報價）")
+            .anyMatch(m -> m.hasShop() && m.getShop().getQuotesCount() == 1 && m.getShop().getQuotes(0).getPrice() == 2);
+    }
+
+    @Test
+    void cannotBuyWithoutEnoughGold() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 50));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "buy dagger"));
+        zone.tick();
+
+        PlayerEntity p = entity(zone, PlayerEntity.class);
+        assertThat(p.gold()).isEqualTo(50);
+        assertThat(p.inventory().entries()).isEmpty();
+        assertThat(alice.texts()).anyMatch(t -> t.contains("你的錢不夠"));
+    }
+
+    @Test
+    void sellingGivesGoldAndShopRefusesOtherTypes() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 0, new ItemRecord("meat", 5, false), new ItemRecord("dagger", 1, false)));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "sell meat 2"));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "sell dagger"));
+        zone.tick();
+
+        PlayerEntity p = entity(zone, PlayerEntity.class);
+        assertThat(p.gold()).isEqualTo(2 * 2); // 價值 4 × 0.5
+        assertThat(p.inventory().find("meat", false).orElseThrow().quantity()).isEqualTo(3);
+        assertThat(p.inventory().find("dagger", false)).isPresent();
+        assertThat(alice.texts()).contains("老闆搖搖頭說：「匕首我不收。」");
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "sell meat all"));
+        zone.tick();
+        assertThat(p.gold()).isEqualTo(5 * 2);
+        assertThat(p.inventory().find("meat", false)).isEmpty();
+    }
+
+    @Test
+    void tradingRequiresAMerchantNearby() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 20, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 100, new ItemRecord("meat", 1, false)));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "buy meat"));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "sell meat"));
+        zone.tick();
+
+        assertThat(entity(zone, PlayerEntity.class).gold()).isEqualTo(100);
+        assertThat(alice.texts()).filteredOn("這附近沒有商人。"::equals).hasSize(2);
+    }
+
+    @Test
+    void listWalksToMerchantAndShopClosesWhenWalkingAway() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 10, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 0));
+        int bossId = entity(zone, NpcEntity.class).id();
+        zone.enqueue(new ZoneEvent.CommandText(alice, "list #" + bossId)); // 前端點擊商人送出的指令
+        run(zone, 3 * TICK_RATE);
+
+        PlayerEntity p = entity(zone, PlayerEntity.class);
+        assertThat(alice.sent).anyMatch(ServerMessage::hasShop);
+        assertThat(p.distanceTo(10, 0)).isLessThanOrEqualTo(Zone.TRADE_RANGE);
+
+        zone.enqueue(new ZoneEvent.Move(alice, -20, 0));
+        run(zone, 3 * TICK_RATE);
+        assertThat(alice.sent).anyMatch(ServerMessage::hasShopClosed);
+    }
+
+    @Test
+    void merchantsCannotBeAttacked() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 0));
+        zone.tick();
+        NpcEntity boss = entity(zone, NpcEntity.class);
+        assertThat(boss.toState().getKind()).isEqualTo(EntityKind.ENTITY_KIND_MERCHANT);
+
+        zone.enqueue(new ZoneEvent.Attack(alice, boss.id()));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "kill boss"));
+        run(zone, TICK_RATE);
+
+        assertThat(boss.hp()).isEqualTo(boss.maxHp());
+        assertThat(entity(zone, PlayerEntity.class).combatTarget()).isNull();
     }
 
     // ===== 工具 =====

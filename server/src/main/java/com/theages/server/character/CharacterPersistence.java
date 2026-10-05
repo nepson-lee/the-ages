@@ -38,7 +38,7 @@ public class CharacterPersistence implements CharacterStore {
             try {
                 // 角色與物品在同一個交易內寫入，避免只存到一半
                 tx.executeWithoutResult(status -> characters.findById(s.characterId()).ifPresent(c -> {
-                    c.update(s.zoneId(), s.x(), s.z(), s.level(), s.exp(), s.hp());
+                    c.update(s.zoneId(), s.x(), s.z(), s.level(), s.exp(), s.hp(), s.gold());
                     items.replaceAll(c.getId(), s.items());
                 }));
             } catch (RuntimeException e) {

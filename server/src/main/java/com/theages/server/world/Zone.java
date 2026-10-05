@@ -4,7 +4,11 @@ import com.theages.protocol.v1.CombatEvent;
 import com.theages.protocol.v1.EntityLeft;
 import com.theages.protocol.v1.EntityState;
 import com.theages.protocol.v1.InventoryItem;
+import com.theages.protocol.v1.SellQuote;
 import com.theages.protocol.v1.ServerMessage;
+import com.theages.protocol.v1.ShopClosed;
+import com.theages.protocol.v1.ShopOffer;
+import com.theages.protocol.v1.ShopView;
 import com.theages.protocol.v1.TextChannel;
 import com.theages.protocol.v1.TextOutput;
 import com.theages.protocol.v1.Welcome;
@@ -15,14 +19,17 @@ import com.theages.server.world.item.InventoryEntry;
 import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.ItemType;
 import com.theages.server.world.item.LootEntry;
+import com.theages.server.world.item.ShopDefinition;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
@@ -59,6 +66,7 @@ public final class Zone {
     private final int tickRate;
     private final IntSupplier entityIds;
     private final CharacterStore store;
+    private final WorldContent content;
     private final Map<String, ItemTemplate> itemTemplates;
     private final RandomGenerator random;
     private final Commands commands = new Commands();
@@ -77,18 +85,19 @@ public final class Zone {
 
     private ScheduledExecutorService executor;
 
-    public Zone(ZoneDefinition definition, Map<String, NpcTemplate> templates, Map<String, ItemTemplate> itemTemplates,
-                int tickRate, IntSupplier entityIds, CharacterStore store, RandomGenerator random) {
+    public Zone(ZoneDefinition definition, WorldContent content, int tickRate, IntSupplier entityIds,
+                CharacterStore store, RandomGenerator random) {
         this.definition = definition;
         this.tickRate = tickRate;
         this.entityIds = entityIds;
         this.store = store;
-        this.itemTemplates = itemTemplates;
+        this.content = content;
+        this.itemTemplates = content.items();
         this.random = random;
         this.combat = new Combat(this, random, tickRate);
         this.npcBrain = new NpcBrain(this, random, tickRate);
         for (ZoneDefinition.NpcSpawn spawn : definition.npcs()) {
-            NpcTemplate template = templates.get(spawn.template());
+            NpcTemplate template = content.npcs().get(spawn.template());
             for (int i = 0; i < spawn.countOrOne(); i++) {
                 // 同一組的 NPC 散開在半徑 2 公尺內
                 double angle = random.nextDouble() * Math.PI * 2;
@@ -158,6 +167,7 @@ public final class Zone {
         npcBrain.update(tick);
         combat.update(tick);
         updatePickups();
+        updateShops();
 
         float dt = 1f / tickRate;
         for (Entity e : entities.values()) {
@@ -194,6 +204,9 @@ public final class Zone {
             }
             if (p.inventory().consumeDirty()) {
                 p.connection().send(inventoryMessage(p.inventory()));
+                if (p.openShop != null) {
+                    sendShop(p, p.openShop); // 收購清單跟著背包變
+                }
             }
         }
         tick++;
@@ -213,9 +226,11 @@ public final class Zone {
         } else if (event instanceof ZoneEvent.Move move) {
             player.setCombatTarget(null); // 移動 = 停止攻擊（NPC 仍會追你）
             player.pendingPickup = null;
+            player.pendingShop = null;
             player.moveToward(definition.clamp(move.targetX()), definition.clamp(move.targetZ()));
         } else if (event instanceof ZoneEvent.Attack attack) {
             player.pendingPickup = null;
+            player.pendingShop = null;
             startAttack(player, entities.get(attack.targetId()));
         } else if (event instanceof ZoneEvent.CommandText cmd) {
             commands.execute(this, player, cmd.text());
@@ -234,7 +249,7 @@ public final class Zone {
             Inventory inventory = Inventory.fromRecords(join.items(), itemTemplates,
                 id -> log.warn("角色 {} 身上的物品 {} 已不存在於內容檔，略過", join.characterId(), id));
             player = new PlayerEntity(entityIds.getAsInt(), join.characterId(), join.name(), join.connection(),
-                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), inventory);
+                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), join.gold(), inventory);
             byCharacter.put(player.characterId(), player);
             entities.put(player.id(), player);
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 走了過來。", player);
@@ -310,13 +325,21 @@ public final class Zone {
         return Collections.unmodifiableList(npcs);
     }
 
+    Entity entity(int id) {
+        return entities.get(id);
+    }
+
     boolean contains(Entity e) {
         return entities.get(e.id()) == e;
     }
 
     void startAttack(PlayerEntity player, Entity target) {
-        if (!(target instanceof NpcEntity) || target.isDead()) {
+        if (!(target instanceof NpcEntity npc) || target.isDead()) {
             sendText(player, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有這個目標。");
+            return;
+        }
+        if (npc.template().isMerchant()) {
+            sendText(player, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "笑著搖搖頭：「年輕人，別在店門口動手動腳的。」");
             return;
         }
         if (player.combatTarget() == target) {
@@ -369,6 +392,12 @@ public final class Zone {
         int exp = killExp(npc, p);
         int levels = p.gainExp(exp);
         sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你殺死了" + npc.name() + "！獲得 " + exp + " 點經驗。");
+        NpcTemplate t = npc.template();
+        int gold = t.goldMax() <= 0 ? 0 : t.goldMin() + random.nextInt(t.goldMax() - t.goldMin() + 1);
+        if (gold > 0) {
+            p.addGold(gold);
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你從" + npc.name() + "身上搜出了 " + gold + " 枚銅錢。");
+        }
         broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 殺死了" + npc.name() + "。", p);
         if (levels > 0) {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "★ 恭喜！你的等級提升到 " + p.level() + " 級了！");
@@ -379,6 +408,170 @@ public final class Zone {
     void respawn(NpcEntity npc) {
         npc.respawn();
         entities.put(npc.id(), npc);
+    }
+
+    // ===== 商店 =====
+
+    /** 與商人交易的距離（公尺）。 */
+    static final float TRADE_RANGE = 4f;
+
+    /** 最近的、在交易距離內的商人。 */
+    Optional<NpcEntity> merchantNear(PlayerEntity p) {
+        return entities.values().stream()
+            .filter(e -> e instanceof NpcEntity n && n.template().isMerchant())
+            .map(e -> (NpcEntity) e)
+            .filter(n -> p.distanceTo(n) <= TRADE_RANGE)
+            .min(Comparator.comparingDouble(p::distanceTo));
+    }
+
+    /** 打開商店；太遠就先走過去。 */
+    void openShop(PlayerEntity p, NpcEntity merchant) {
+        if (p.combatTarget() != null) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你正在戰鬥，沒空做生意！");
+        } else if (p.distanceTo(merchant) <= TRADE_RANGE) {
+            p.pendingShop = null;
+            p.openShop = merchant;
+            sendShop(p, merchant);
+            sendText(p, TextChannel.TEXT_CHANNEL_ROOM, describeShop(p, merchant));
+        } else {
+            p.pendingPickup = null;
+            p.pendingShop = merchant;
+            p.moveToward(merchant.x(), merchant.z());
+        }
+    }
+
+    void buy(PlayerEntity p, String query, int quantity) {
+        Optional<NpcEntity> near = merchantNear(p);
+        if (near.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "這附近沒有商人。");
+            return;
+        }
+        NpcEntity merchant = near.get();
+        ShopDefinition shop = content.shopOf(merchant.template());
+        Optional<ShopDefinition.ShopListing> listing = shop.sells().stream()
+            .filter(l -> content.items().get(l.item()).matches(query))
+            .findFirst();
+        if (listing.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SAY, merchant.name() + "說：「抱歉，小店沒有賣「" + query + "」。」");
+            return;
+        }
+        ItemTemplate item = content.items().get(listing.get().item());
+        long total = (long) listing.get().priceFor(item) * quantity;
+        if (total > p.gold()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SAY, merchant.name() + "說：「" + quantity + " 個" + item.name()
+                + "要 " + total + " 枚銅錢，你的錢不夠喔。」");
+            return;
+        }
+        if (!p.inventory().canAdd(item, quantity)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你身上的東西太多了，拿不下" + item.name() + "。");
+            return;
+        }
+        p.spendGold((int) total);
+        p.inventory().add(item, quantity);
+        p.openShop = merchant;
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你花了 " + total + " 枚銅錢，向" + merchant.name() + "買了"
+            + item.name() + (quantity > 1 ? " ×" + quantity : "") + "。");
+    }
+
+    void sell(PlayerEntity p, InventoryEntry entry, int quantity) {
+        Optional<NpcEntity> near = merchantNear(p);
+        if (near.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "這附近沒有商人。");
+            return;
+        }
+        NpcEntity merchant = near.get();
+        ItemTemplate item = entry.template();
+        if (entry.equipped()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你得先卸下" + item.name() + "。");
+            return;
+        }
+        int unit = content.shopOf(merchant.template()).buyPrice(item);
+        if (unit == 0) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SAY, merchant.name() + "搖搖頭說：「" + item.name() + "我不收。」");
+            return;
+        }
+        int qty = Math.min(quantity, entry.quantity());
+        p.inventory().remove(entry, qty);
+        p.addGold(unit * qty);
+        p.openShop = merchant;
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你把" + item.name() + (qty > 1 ? " ×" + qty : "") + "賣給"
+            + merchant.name() + "，得到 " + (unit * qty) + " 枚銅錢。");
+    }
+
+    /** 估價：附近商人收購這個東西的單價。 */
+    void appraise(PlayerEntity p, InventoryEntry entry) {
+        Optional<NpcEntity> near = merchantNear(p);
+        if (near.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "這附近沒有商人可以估價。");
+            return;
+        }
+        NpcEntity merchant = near.get();
+        int unit = content.shopOf(merchant.template()).buyPrice(entry.template());
+        sendText(p, TextChannel.TEXT_CHANNEL_SAY, unit == 0
+            ? merchant.name() + "說：「" + entry.template().name() + "我不收。」"
+            : merchant.name() + "說：「" + entry.template().name() + "嘛……一個 " + unit + " 枚銅錢。」");
+    }
+
+    /** 走過去的商人到了就打開商店；開著的商店離太遠就關掉。 */
+    private void updateShops() {
+        for (PlayerEntity p : byConnection.values()) {
+            NpcEntity pending = p.pendingShop;
+            if (pending != null) {
+                if (!contains(pending) || p.combatTarget() != null) {
+                    p.pendingShop = null;
+                } else if (p.distanceTo(pending) <= TRADE_RANGE) {
+                    p.stop();
+                    openShop(p, pending);
+                } else {
+                    p.moveToward(pending.x(), pending.z());
+                }
+            }
+            NpcEntity open = p.openShop;
+            if (open != null && (!contains(open) || p.distanceTo(open) > TRADE_RANGE + 1)) {
+                p.openShop = null;
+                p.connection().send(ServerMessage.newBuilder().setShopClosed(ShopClosed.getDefaultInstance()).build());
+            }
+        }
+    }
+
+    private void sendShop(PlayerEntity p, NpcEntity merchant) {
+        ShopDefinition shop = content.shopOf(merchant.template());
+        ShopView.Builder view = ShopView.newBuilder()
+            .setMerchantId(merchant.id())
+            .setMerchantName(merchant.name())
+            .setShopName(shop.name());
+        for (ShopDefinition.ShopListing listing : shop.sells()) {
+            ItemTemplate t = content.items().get(listing.item());
+            view.addOffers(ShopOffer.newBuilder()
+                .setTemplateId(t.id())
+                .setName(t.name())
+                .setDescription(t.description())
+                .setPrice(listing.priceFor(t))
+                .setType(toProto(t.type()))
+                .setSlot(t.slot() == null ? com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_UNSPECIFIED : toProto(t.slot()))
+                .setAttack(t.attack())
+                .setDefense(t.defense())
+                .setMaxHp(t.maxHp())
+                .setHeal(t.heal()));
+        }
+        for (InventoryEntry e : p.inventory().entries()) {
+            int price = shop.buyPrice(e.template());
+            if (price > 0 && !e.equipped()) {
+                view.addQuotes(SellQuote.newBuilder().setUid(e.uid()).setPrice(price));
+            }
+        }
+        p.connection().send(ServerMessage.newBuilder().setShop(view).build());
+    }
+
+    private String describeShop(PlayerEntity p, NpcEntity merchant) {
+        ShopDefinition shop = content.shopOf(merchant.template());
+        StringBuilder sb = new StringBuilder(merchant.name()).append("笑著說：「歡迎光臨").append(shop.name()).append("！」");
+        for (ShopDefinition.ShopListing listing : shop.sells()) {
+            ItemTemplate t = content.items().get(listing.item());
+            sb.append(String.format("%n  %-8s %4d 枚銅錢　%s", t.name(), listing.priceFor(t), t.statSummary()));
+        }
+        sb.append("\n你有 ").append(p.gold()).append(" 枚銅錢。（buy <物品> [數量]、sell <物品> [數量|all]）");
+        return sb.toString();
     }
 
     // ===== 物品 =====

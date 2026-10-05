@@ -9,6 +9,7 @@ export class Hud {
   private readonly hpText: HTMLElement;
   private readonly expFill: HTMLElement;
   private readonly expText: HTMLElement;
+  private readonly gold: HTMLElement;
 
   constructor() {
     this.element = document.createElement("div");
@@ -17,7 +18,7 @@ export class Hud {
       <div class="hud-title"><span class="zone"></span><span class="level"></span></div>
       <div class="bar hp"><div class="fill"></div><span class="text"></span></div>
       <div class="bar exp"><div class="fill"></div><span class="text"></span></div>
-      <button type="button" class="bag-button" title="背包（I）">背包</button>`;
+      <div class="hud-footer"><span class="gold"></span><button type="button" class="bag-button" title="背包（I）">背包</button></div>`;
     const q = (s: string) => this.element.querySelector<HTMLElement>(s)!;
     this.zone = q(".zone");
     this.level = q(".level");
@@ -25,6 +26,7 @@ export class Hud {
     this.hpText = q(".hp .text");
     this.expFill = q(".exp .fill");
     this.expText = q(".exp .text");
+    this.gold = q(".gold");
   }
 
   onInventoryClick(handler: () => void): void {
@@ -41,6 +43,7 @@ export class Hud {
     this.hpText.textContent = `生命 ${s.hp}/${s.maxHp}`;
     this.expFill.style.width = `${pct(s.exp, s.expToNext)}%`;
     this.expText.textContent = `經驗 ${s.exp}/${s.expToNext}`;
+    this.gold.textContent = `銅錢 ${s.gold}`;
     this.element.classList.toggle("danger", s.hp > 0 && s.hp / s.maxHp < 0.3);
   }
 }

@@ -53,7 +53,7 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         session.getAttributes().put(ZONE_ATTR, zone);
         session.getAttributes().put(CONNECTION_ATTR, connection);
         zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
-            c.getLevel(), c.getExp(), c.getHp(), items.loadRecords(c.getId())));
+            c.getLevel(), c.getExp(), c.getHp(), c.getGold(), items.loadRecords(c.getId())));
         log.info("{} 連線進入 {}", username, zone.definition().id());
     }
 

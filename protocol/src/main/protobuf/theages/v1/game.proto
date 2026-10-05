@@ -50,6 +50,8 @@ message ServerMessage {
     CombatEvent combat = 5;
     SelfStats self_stats = 6;
     Inventory inventory = 7;
+    ShopView shop = 8;
+    ShopClosed shop_closed = 9;
   }
 }
 
@@ -67,6 +69,8 @@ enum EntityKind {
   ENTITY_KIND_NPC = 2;
   // 地上的物品：model 為物品模板 id；點擊後送出 `get #<id>` 指令撿起。
   ENTITY_KIND_ITEM = 3;
+  // 商人：不能攻擊；點擊後送出 `list #<id>` 指令打開商店。
+  ENTITY_KIND_MERCHANT = 4;
 }
 
 message EntityState {
@@ -124,6 +128,7 @@ message SelfStats {
   uint32 max_hp = 5;
   uint32 attack = 6;
   uint32 defense = 7;
+  uint32 gold = 8;
 }
 
 enum ItemType {
@@ -162,4 +167,38 @@ message InventoryItem {
 message Inventory {
   repeated InventoryItem items = 1;
   uint32 capacity = 2;
+}
+
+// 商店畫面。打開商店、或在商店開著時背包有變動，都會整份重送。
+message ShopView {
+  uint32 merchant_id = 1;
+  string merchant_name = 2;
+  string shop_name = 3;
+  repeated ShopOffer offers = 4;
+  // 背包中商人願意收購的物品與單價（不收購的不列出）。
+  repeated SellQuote quotes = 5;
+}
+
+// 商人販賣的物品。購買指令：`buy <template_id> [數量]`。
+message ShopOffer {
+  string template_id = 1;
+  string name = 2;
+  string description = 3;
+  uint32 price = 4;
+  ItemType type = 5;
+  EquipSlot slot = 6;
+  int32 attack = 7;
+  int32 defense = 8;
+  int32 max_hp = 9;
+  int32 heal = 10;
+}
+
+// 出售指令：`sell #<uid> [數量|all]`。
+message SellQuote {
+  uint32 uid = 1;
+  uint32 price = 2;
+}
+
+// 離開商人太遠或商人消失時送出，前端關閉商店畫面。
+message ShopClosed {
 }

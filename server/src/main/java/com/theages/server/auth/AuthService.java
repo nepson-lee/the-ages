@@ -48,7 +48,7 @@ public class AuthService {
         Account account = accounts.save(new Account(username, passwordEncoder.encode(password)));
         ZoneDefinition start = world.startingZoneDefinition();
         PlayerCharacter character = characters.save(new PlayerCharacter(account.getId(), username, start.id(),
-            start.spawn().x(), start.spawn().z()));
+            start.spawn().x(), start.spawn().z(), world.startingGold()));
         items.replaceAll(character.getId(), startingItems());
         return tokenService.issue(username);
     }
@@ -63,7 +63,7 @@ public class AuthService {
 
     /** 出生物品：裝備類若該欄位還空著就直接穿上。 */
     private List<ItemRecord> startingItems() {
-        Map<String, ItemTemplate> templates = world.validatedItems();
+        Map<String, ItemTemplate> templates = world.validatedContent().items();
         Set<EquipSlot> used = EnumSet.noneOf(EquipSlot.class);
         List<ItemRecord> records = new ArrayList<>();
         for (String id : world.startingItems()) {

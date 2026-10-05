@@ -38,7 +38,8 @@ final class Commands {
         Map.entry("take", "get"),
         Map.entry("wield", "wear"),
         Map.entry("eat", "use"),
-        Map.entry("drink", "use"));
+        Map.entry("drink", "use"),
+        Map.entry("shop", "list"));
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -75,9 +76,9 @@ final class Commands {
         register("flee", "停止攻擊", (zone, actor, args) -> zone.stopAttack(actor));
 
         register("score", "查看自己的狀態", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
-            String.format("【%s】 等級 %d%n生命 %d/%d　攻擊 %d　防禦 %d%n經驗 %d/%d",
+            String.format("【%s】 等級 %d%n生命 %d/%d　攻擊 %d　防禦 %d%n經驗 %d/%d　銅錢 %d",
                 actor.name(), actor.level(), actor.hp(), actor.maxHp(), actor.attack(), actor.defense(),
-                actor.exp(), PlayerEntity.expToNext(actor.level()))));
+                actor.exp(), PlayerEntity.expToNext(actor.level()), actor.gold())));
 
         register("inventory", "查看背包（i）", (zone, actor, args) -> {
             List<InventoryEntry> entries = actor.inventory().entries();
@@ -113,6 +114,62 @@ final class Commands {
 
         register("use", "使用消耗品：use <物品>（eat、drink 也可以）", (zone, actor, args) ->
             withItem(zone, actor, args, false, entry -> zone.use(actor, entry)));
+
+        register("list", "查看附近商人賣什麼", (zone, actor, args) -> {
+            Optional<NpcEntity> merchant = args.isEmpty()
+                ? zone.merchantNear(actor)
+                : findNpc(zone, actor, args).filter(n -> n.template().isMerchant());
+            merchant.ifPresentOrElse(m -> zone.openShop(actor, m),
+                () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這附近沒有商人。"));
+        });
+
+        register("buy", "向商人買東西：buy <物品> [數量]", (zone, actor, args) -> {
+            Quantity q = Quantity.parse(args, false);
+            if (q == null) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想買什麼？（buy <物品> [數量]，數量 1～" + Quantity.MAX + "）");
+                return;
+            }
+            zone.buy(actor, q.target(), q.amount());
+        });
+
+        register("sell", "把東西賣給商人：sell <物品> [數量|all]", (zone, actor, args) -> {
+            Quantity q = Quantity.parse(args, true);
+            if (q == null) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想賣什麼？（sell <物品> [數量|all]）");
+                return;
+            }
+            withItem(zone, actor, q.target(), false, entry -> zone.sell(actor, entry, q.amount()));
+        });
+
+        register("value", "請附近商人估價：value <物品>", (zone, actor, args) ->
+            withItem(zone, actor, args, false, entry -> zone.appraise(actor, entry)));
+    }
+
+    /** 「物品 [數量]」的解析結果；all 以 {@link Integer#MAX_VALUE} 表示。 */
+    private record Quantity(String target, int amount) {
+
+        static final int MAX = 99;
+
+        static Quantity parse(String args, boolean allowAll) {
+            if (args.isEmpty()) {
+                return null;
+            }
+            int space = args.lastIndexOf(' ');
+            if (space < 0) {
+                return new Quantity(args, 1);
+            }
+            String last = args.substring(space + 1);
+            String target = args.substring(0, space).strip();
+            if (allowAll && last.equalsIgnoreCase("all")) {
+                return new Quantity(target, Integer.MAX_VALUE);
+            }
+            try {
+                int n = Integer.parseInt(last);
+                return n >= 1 && n <= MAX ? new Quantity(target, n) : null;
+            } catch (NumberFormatException e) {
+                return new Quantity(args, 1); // 名稱本身含空白
+            }
+        }
     }
 
     private void register(String verb, String help, Handler handler) {
@@ -170,7 +227,7 @@ final class Commands {
             .map(list -> {
                 NpcTemplate t = list.get(0).template();
                 String keyword = t.keywords().isEmpty() ? "" : "(" + t.keywords().get(0) + ")";
-                return t.name() + keyword + (list.size() > 1 ? " ×" + list.size() : "");
+                return t.name() + keyword + (t.isMerchant() ? "［商人］" : "") + (list.size() > 1 ? " ×" + list.size() : "");
             })
             .collect(Collectors.joining("、"));
         String loot = zone.groundItems().stream()
@@ -230,8 +287,17 @@ final class Commands {
             .min(Comparator.comparingDouble(g -> actor.distanceTo(g.x(), g.z())));
     }
 
-    /** 依名稱或代稱找最近的活著的 NPC。 */
+    /** 依 {@code #<id>}、名稱或代稱找最近的活著的 NPC。 */
     private static Optional<NpcEntity> findNpc(Zone zone, PlayerEntity actor, String query) {
+        if (query.startsWith("#")) {
+            try {
+                return Optional.ofNullable(zone.entity(Integer.parseInt(query.substring(1))))
+                    .filter(e -> e instanceof NpcEntity && !e.isDead())
+                    .map(e -> (NpcEntity) e);
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
         return zone.entities().stream()
             .filter(e -> e instanceof NpcEntity)
             .map(e -> (NpcEntity) e)

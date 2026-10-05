@@ -12,6 +12,7 @@ export interface WorldViewHandlers {
   onGroundClick(x: number, z: number): void;
   onEntityClick(id: number): void;
   onItemClick(id: number): void;
+  onMerchantClick(id: number): void;
 }
 
 interface EntityView {
@@ -149,7 +150,7 @@ export class WorldView {
     group.userData.entityId = state.id;
 
     const label = document.createElement("div");
-    const kindClass = state.kind === EntityKind.NPC ? "npc" : state.kind === EntityKind.ITEM ? "item" : "player";
+    const kindClass = { [EntityKind.NPC]: "npc", [EntityKind.ITEM]: "item", [EntityKind.MERCHANT]: "merchant" }[state.kind as number] ?? "player";
     label.className = `name-label ${kindClass}${isSelf ? " self" : ""}`;
     label.innerHTML = `<span class="name"></span><div class="hp"><div class="fill"></div></div>`;
     const labelObj = new CSS2DObject(label);
@@ -162,11 +163,13 @@ export class WorldView {
 
   private updateLabel(view: EntityView): void {
     const s = view.state;
-    view.label.querySelector(".name")!.textContent = s.kind === EntityKind.NPC ? `${s.name} Lv${s.level}` : s.name;
+    view.label.querySelector(".name")!.textContent =
+      s.kind === EntityKind.NPC ? `${s.name} Lv${s.level}` : s.kind === EntityKind.MERCHANT ? `${s.name}［商人］` : s.name;
     const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
     view.hpFill.style.width = `${Math.round(ratio * 100)}%`;
     // 滿血又不在戰鬥時隱藏血條，畫面比較乾淨
-    view.label.classList.toggle("show-hp", s.kind !== EntityKind.ITEM && (ratio < 1 || s.targetId !== 0));
+    const hasHp = s.kind === EntityKind.NPC || s.kind === EntityKind.PLAYER;
+    view.label.classList.toggle("show-hp", hasHp && (ratio < 1 || s.targetId !== 0));
   }
 
   private handlePointer(ev: PointerEvent): void {
@@ -177,8 +180,8 @@ export class WorldView {
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
 
-    // 先看有沒有點到 NPC 或地上物品，沒有才算點地面
-    const clickable = [...this.entities.values()].filter((v) => v.state.kind === EntityKind.NPC || v.state.kind === EntityKind.ITEM);
+    // 先看有沒有點到 NPC、商人或地上物品，沒有才算點地面
+    const clickable = [...this.entities.values()].filter((v) => v.state.kind !== EntityKind.PLAYER);
     const hitEntity = this.raycaster.intersectObjects(clickable.map((v) => v.group), true)[0];
     if (hitEntity) {
       let o: THREE.Object3D | null = hitEntity.object;
@@ -188,6 +191,10 @@ export class WorldView {
       const view = o ? this.entities.get(o.userData.entityId as number) : undefined;
       if (view?.state.kind === EntityKind.ITEM) {
         this.handlers.onItemClick(view.state.id);
+        return;
+      }
+      if (view?.state.kind === EntityKind.MERCHANT) {
+        this.handlers.onMerchantClick(view.state.id);
         return;
       }
       if (view) {
