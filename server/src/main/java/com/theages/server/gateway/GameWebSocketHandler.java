@@ -2,6 +2,7 @@ package com.theages.server.gateway;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.theages.protocol.v1.ClientMessage;
+import com.theages.server.character.CharacterItemRepository;
 import com.theages.server.character.PlayerCharacter;
 import com.theages.server.character.PlayerCharacterRepository;
 import com.theages.server.world.World;
@@ -30,10 +31,12 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
 
     private final World world;
     private final PlayerCharacterRepository characters;
+    private final CharacterItemRepository items;
 
-    public GameWebSocketHandler(World world, PlayerCharacterRepository characters) {
+    public GameWebSocketHandler(World world, PlayerCharacterRepository characters, CharacterItemRepository items) {
         this.world = world;
         this.characters = characters;
+        this.items = items;
     }
 
     @Override
@@ -50,7 +53,7 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         session.getAttributes().put(ZONE_ATTR, zone);
         session.getAttributes().put(CONNECTION_ATTR, connection);
         zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
-            c.getLevel(), c.getExp(), c.getHp()));
+            c.getLevel(), c.getExp(), c.getHp(), items.loadRecords(c.getId())));
         log.info("{} 連線進入 {}", username, zone.definition().id());
     }
 

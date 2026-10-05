@@ -68,6 +68,31 @@ function unknown(): Model {
 
 const NPC_MODELS: Record<string, () => Model> = { rabbit, chicken, wolf };
 
+/**
+ * 地上的物品：統一用小布袋表示，顏色依物品 id 決定（同一種物品永遠同色）。
+ * 內層 "bob" 物件會在 world-view 裡上下浮動、旋轉，讓掉落物比較顯眼。
+ */
+export function createItemModel(templateId: string): Model {
+  let hash = 0;
+  for (const ch of templateId) {
+    hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  }
+  const color = new THREE.Color().setHSL(((hash >>> 0) % 360) / 360, 0.55, 0.55);
+  const bob = new THREE.Group();
+  bob.name = "bob";
+  const bag = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.25,
+  }));
+  bag.scale.y = 0.8;
+  bag.castShadow = true;
+  const knot = mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.12, 8), 0x6b4a2b, 0, 0.2, 0);
+  bob.add(bag, knot);
+  bob.position.y = 0.3;
+  return { object: bob, labelHeight: 0.85 };
+}
+
 export function createModel(model: string, isSelf: boolean): Model {
   if (model === "player") {
     return player(isSelf);

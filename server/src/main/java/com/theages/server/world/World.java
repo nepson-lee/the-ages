@@ -1,5 +1,6 @@
 package com.theages.server.world;
 
+import com.theages.server.world.item.ItemTemplate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.SplittableRandom;
@@ -19,11 +20,12 @@ public class World implements SmartLifecycle {
         this.properties = properties;
         properties.startingZoneDefinition(); // 啟動時就驗證設定
         Map<String, NpcTemplate> templates = properties.validatedTemplates();
+        Map<String, ItemTemplate> items = properties.validatedItems();
         AtomicInteger entityIds = new AtomicInteger(1);
         SplittableRandom seeds = new SplittableRandom();
         for (ZoneDefinition def : properties.zones()) {
             // 每個區域各自一個亂數產生器：只在自己的 tick 執行緒上使用，不需同步
-            zones.put(def.id(), new Zone(def, templates, properties.tickRate(), entityIds::getAndIncrement,
+            zones.put(def.id(), new Zone(def, templates, items, properties.tickRate(), entityIds::getAndIncrement,
                 store, seeds.split()));
         }
     }

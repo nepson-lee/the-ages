@@ -4,6 +4,7 @@ import { WorldView } from "./game/world-view";
 import { GameConnection } from "./net/connection";
 import { GameConsole } from "./ui/console";
 import { Hud } from "./ui/hud";
+import { InventoryPanel } from "./ui/inventory";
 import { showLogin } from "./ui/login";
 
 const TOKEN_KEY = "theages.token";
@@ -25,10 +26,13 @@ function start(token: string): void {
   const view = new WorldView(root.querySelector(".viewport")!, {
     onGroundClick: (x, z) => connection?.moveTo(x, z),
     onEntityClick: (id) => connection?.attack(id),
+    onItemClick: (id) => connection?.command(`get #${id}`),
   });
   const hud = new Hud();
   const gameConsole = new GameConsole((text) => connection?.command(text));
-  root.querySelector(".game")!.append(hud.element, gameConsole.element);
+  const inventory = new InventoryPanel((command) => connection?.command(command));
+  hud.onInventoryClick(() => inventory.toggle());
+  root.querySelector(".game")!.append(hud.element, gameConsole.element, inventory.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -52,6 +56,9 @@ function start(token: string): void {
         case "selfStats":
           hud.setStats(p.value);
           break;
+        case "inventory":
+          inventory.update(p.value);
+          break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);
           break;
@@ -59,6 +66,7 @@ function start(token: string): void {
     },
     onClose: (reason) => {
       activeConsole = null;
+      activeInventory = null;
       view.dispose();
       storage()?.removeItem(TOKEN_KEY);
       showLogin(root, start, reason);
@@ -66,12 +74,19 @@ function start(token: string): void {
   });
 
   activeConsole = gameConsole;
+  activeInventory = inventory;
 }
 
 let activeConsole: GameConsole | null = null;
+let activeInventory: InventoryPanel | null = null;
+// 指令列有焦點時按鍵不會傳到這裡（console.ts 會 stopPropagation）
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
     activeConsole?.focus();
+  } else if (ev.key === "i" || ev.key === "I") {
+    activeInventory?.toggle();
+  } else if (ev.key === "Escape") {
+    activeInventory?.toggle(false);
   }
 });
 

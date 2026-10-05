@@ -9,28 +9,38 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/** 在專用執行緒上把角色狀態寫回資料庫，讓區域 tick 不必等待 I/O。 */
+/**
+ * 在專用執行緒上把角色狀態寫回資料庫，讓區域 tick 不必等待 I/O。
+ * 單一執行緒確保同一角色的存檔依序寫入。
+ */
 @Component
 public class CharacterPersistence implements CharacterStore {
 
     private static final Logger log = LoggerFactory.getLogger(CharacterPersistence.class);
 
-    private final PlayerCharacterRepository repository;
+    private final PlayerCharacterRepository characters;
+    private final CharacterItemRepository items;
+    private final TransactionTemplate tx;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "character-persistence"));
 
-    public CharacterPersistence(PlayerCharacterRepository repository) {
-        this.repository = repository;
+    public CharacterPersistence(PlayerCharacterRepository characters, CharacterItemRepository items,
+                                TransactionTemplate tx) {
+        this.characters = characters;
+        this.items = items;
+        this.tx = tx;
     }
 
     @Override
     public void saveAsync(CharacterSnapshot s) {
         executor.execute(() -> {
             try {
-                repository.findById(s.characterId()).ifPresent(c -> {
+                // 角色與物品在同一個交易內寫入，避免只存到一半
+                tx.executeWithoutResult(status -> characters.findById(s.characterId()).ifPresent(c -> {
                     c.update(s.zoneId(), s.x(), s.z(), s.level(), s.exp(), s.hp());
-                    repository.save(c);
-                });
+                    items.replaceAll(c.getId(), s.items());
+                }));
             } catch (RuntimeException e) {
                 log.error("角色 {} 存檔失敗", s.characterId(), e);
             }

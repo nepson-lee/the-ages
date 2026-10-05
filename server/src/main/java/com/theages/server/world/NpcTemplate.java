@@ -1,5 +1,6 @@
 package com.theages.server.world;
 
+import com.theages.server.world.item.LootEntry;
 import java.util.List;
 import java.util.Locale;
 
@@ -18,10 +19,12 @@ public record NpcTemplate(
     String verb,
     boolean aggressive,
     int respawnSeconds,
-    float wanderRadius) {
+    float wanderRadius,
+    List<LootEntry> loot) {
 
     public NpcTemplate {
         keywords = keywords == null ? List.of() : List.copyOf(keywords);
+        loot = loot == null ? List.of() : List.copyOf(loot);
     }
 
     /** 中文名稱或任一英文代稱相符（不分大小寫）。 */

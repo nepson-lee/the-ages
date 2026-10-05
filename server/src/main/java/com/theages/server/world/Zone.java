@@ -3,11 +3,18 @@ package com.theages.server.world;
 import com.theages.protocol.v1.CombatEvent;
 import com.theages.protocol.v1.EntityLeft;
 import com.theages.protocol.v1.EntityState;
+import com.theages.protocol.v1.InventoryItem;
 import com.theages.protocol.v1.ServerMessage;
 import com.theages.protocol.v1.TextChannel;
 import com.theages.protocol.v1.TextOutput;
 import com.theages.protocol.v1.Welcome;
 import com.theages.protocol.v1.WorldSnapshot;
+import com.theages.server.world.item.EquipSlot;
+import com.theages.server.world.item.Inventory;
+import com.theages.server.world.item.InventoryEntry;
+import com.theages.server.world.item.ItemTemplate;
+import com.theages.server.world.item.ItemType;
+import com.theages.server.world.item.LootEntry;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -40,11 +47,20 @@ public final class Zone {
     private static final int REGEN_DELAY_SECONDS = 5;
     private static final int REGEN_INTERVAL_SECONDS = 3;
     private static final int AUTOSAVE_INTERVAL_SECONDS = 60;
+    /** 撿東西的距離（公尺）。 */
+    static final float PICKUP_RANGE = 2f;
+    /** 戰利品只有擊殺者能撿的秒數。 */
+    static final int LOOT_OWNER_SECONDS = 30;
+    /** 地上物品消失的秒數。 */
+    static final int GROUND_ITEM_SECONDS = 120;
+    private static final int USE_COOLDOWN_SECONDS = 2;
 
     private final ZoneDefinition definition;
     private final int tickRate;
     private final IntSupplier entityIds;
     private final CharacterStore store;
+    private final Map<String, ItemTemplate> itemTemplates;
+    private final RandomGenerator random;
     private final Commands commands = new Commands();
     private final Combat combat;
     private final NpcBrain npcBrain;
@@ -56,16 +72,19 @@ public final class Zone {
     private final List<NpcEntity> npcs = new ArrayList<>();
     private final Map<PlayerConnection, PlayerEntity> byConnection = new IdentityHashMap<>();
     private final Map<Long, PlayerEntity> byCharacter = new HashMap<>();
+    private final Map<Integer, GroundItem> groundItems = new LinkedHashMap<>();
     private long tick;
 
     private ScheduledExecutorService executor;
 
-    public Zone(ZoneDefinition definition, Map<String, NpcTemplate> templates, int tickRate,
-                IntSupplier entityIds, CharacterStore store, RandomGenerator random) {
+    public Zone(ZoneDefinition definition, Map<String, NpcTemplate> templates, Map<String, ItemTemplate> itemTemplates,
+                int tickRate, IntSupplier entityIds, CharacterStore store, RandomGenerator random) {
         this.definition = definition;
         this.tickRate = tickRate;
         this.entityIds = entityIds;
         this.store = store;
+        this.itemTemplates = itemTemplates;
+        this.random = random;
         this.combat = new Combat(this, random, tickRate);
         this.npcBrain = new NpcBrain(this, random, tickRate);
         for (ZoneDefinition.NpcSpawn spawn : definition.npcs()) {
@@ -138,6 +157,7 @@ public final class Zone {
 
         npcBrain.update(tick);
         combat.update(tick);
+        updatePickups();
 
         float dt = 1f / tickRate;
         for (Entity e : entities.values()) {
@@ -150,10 +170,17 @@ public final class Zone {
             byConnection.values().forEach(this::persist);
         }
 
+        despawnGroundItems();
+
         List<EntityState> changed = new ArrayList<>();
         for (Entity e : entities.values()) {
             if (e.consumeDirty()) {
                 changed.add(e.toState());
+            }
+        }
+        for (GroundItem item : groundItems.values()) {
+            if (item.consumeUnannounced()) {
+                changed.add(item.toState());
             }
         }
         if (!changed.isEmpty()) {
@@ -164,6 +191,9 @@ public final class Zone {
         for (PlayerEntity p : byConnection.values()) {
             if (p.consumeStatsDirty()) {
                 p.connection().send(ServerMessage.newBuilder().setSelfStats(p.toSelfStats()).build());
+            }
+            if (p.inventory().consumeDirty()) {
+                p.connection().send(inventoryMessage(p.inventory()));
             }
         }
         tick++;
@@ -182,8 +212,10 @@ public final class Zone {
             onLeave(player);
         } else if (event instanceof ZoneEvent.Move move) {
             player.setCombatTarget(null); // 移動 = 停止攻擊（NPC 仍會追你）
+            player.pendingPickup = null;
             player.moveToward(definition.clamp(move.targetX()), definition.clamp(move.targetZ()));
         } else if (event instanceof ZoneEvent.Attack attack) {
+            player.pendingPickup = null;
             startAttack(player, entities.get(attack.targetId()));
         } else if (event instanceof ZoneEvent.CommandText cmd) {
             commands.execute(this, player, cmd.text());
@@ -199,8 +231,10 @@ public final class Zone {
             old.close("你的角色已從其他地方登入");
             player.replaceConnection(join.connection());
         } else {
+            Inventory inventory = Inventory.fromRecords(join.items(), itemTemplates,
+                id -> log.warn("角色 {} 身上的物品 {} 已不存在於內容檔，略過", join.characterId(), id));
             player = new PlayerEntity(entityIds.getAsInt(), join.characterId(), join.name(), join.connection(),
-                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp());
+                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), inventory);
             byCharacter.put(player.characterId(), player);
             entities.put(player.id(), player);
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 走了過來。", player);
@@ -217,6 +251,7 @@ public final class Zone {
             .build());
         WorldSnapshot.Builder full = WorldSnapshot.newBuilder().setTick(tick).setFull(true);
         entities.values().forEach(e -> full.addEntities(e.toState()));
+        groundItems.values().forEach(g -> full.addEntities(g.toState()));
         player.connection().send(ServerMessage.newBuilder().setSnapshot(full).build());
         commands.execute(this, player, "look");
     }
@@ -311,6 +346,7 @@ public final class Zone {
             broadcast(ServerMessage.newBuilder().setEntityLeft(EntityLeft.newBuilder().setId(npc.id())).build());
             if (killer instanceof PlayerEntity p) {
                 rewardKill(p, npc);
+                dropLoot(npc, p);
             }
         } else if (victim instanceof PlayerEntity p) {
             int lost = p.loseExpOnDeath();
@@ -343,6 +379,198 @@ public final class Zone {
     void respawn(NpcEntity npc) {
         npc.respawn();
         entities.put(npc.id(), npc);
+    }
+
+    // ===== 物品 =====
+
+    private void dropLoot(NpcEntity npc, PlayerEntity killer) {
+        List<String> names = new ArrayList<>();
+        for (LootEntry loot : npc.template().loot()) {
+            if (random.nextDouble() >= loot.chance()) {
+                continue;
+            }
+            int qty = loot.minOrOne() + random.nextInt(loot.maxOrMin() - loot.minOrOne() + 1);
+            // 散落在屍體周圍半徑 0.8 公尺內
+            double angle = random.nextDouble() * Math.PI * 2;
+            GroundItem item = spawnGroundItem(itemTemplates.get(loot.item()), qty,
+                npc.x() + (float) (Math.cos(angle) * 0.8), npc.z() + (float) (Math.sin(angle) * 0.8), killer);
+            names.add(item.displayName());
+        }
+        if (!names.isEmpty()) {
+            sendText(killer, TextChannel.TEXT_CHANNEL_ROOM, npc.name() + "掉下了：" + String.join("、", names) + "。");
+        }
+    }
+
+    /** owner 為 null 表示任何人都能撿。 */
+    private GroundItem spawnGroundItem(ItemTemplate template, int quantity, float x, float z, PlayerEntity owner) {
+        GroundItem item = new GroundItem(entityIds.getAsInt(), template, quantity,
+            definition.clamp(x), definition.clamp(z),
+            owner == null ? 0 : owner.characterId(), owner == null ? "" : owner.name(),
+            tick + (long) LOOT_OWNER_SECONDS * tickRate, tick + (long) GROUND_ITEM_SECONDS * tickRate);
+        groundItems.put(item.id(), item);
+        return item;
+    }
+
+    private void despawnGroundItems() {
+        groundItems.values().removeIf(item -> {
+            if (!item.expired(tick)) {
+                return false;
+            }
+            broadcast(ServerMessage.newBuilder().setEntityLeft(EntityLeft.newBuilder().setId(item.id())).build());
+            return true;
+        });
+    }
+
+    /** 走過去撿東西：到了就撿，物品不見或開始戰鬥就取消。 */
+    private void updatePickups() {
+        for (PlayerEntity p : byConnection.values()) {
+            GroundItem item = p.pendingPickup;
+            if (item == null) {
+                continue;
+            }
+            if (!groundItems.containsKey(item.id()) || p.combatTarget() != null) {
+                p.pendingPickup = null;
+            } else if (p.distanceTo(item.x(), item.z()) <= PICKUP_RANGE) {
+                p.pendingPickup = null;
+                p.stop();
+                pickUp(p, item);
+            } else {
+                p.moveToward(item.x(), item.z());
+            }
+        }
+    }
+
+    Collection<GroundItem> groundItems() {
+        return Collections.unmodifiableCollection(groundItems.values());
+    }
+
+    GroundItem groundItem(int id) {
+        return groundItems.get(id);
+    }
+
+    /** 撿起物品；太遠就先走過去。 */
+    void requestPickUp(PlayerEntity p, GroundItem item) {
+        if (p.combatTarget() != null) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你正在戰鬥，沒空撿東西！");
+        } else if (p.distanceTo(item.x(), item.z()) <= PICKUP_RANGE) {
+            pickUp(p, item);
+        } else {
+            p.pendingPickup = item;
+            p.moveToward(item.x(), item.z());
+        }
+    }
+
+    /** 立即撿起（不檢查距離）；成功回傳 true。 */
+    boolean pickUp(PlayerEntity p, GroundItem item) {
+        if (!item.canBeTakenBy(p, tick)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "那是" + item.ownerName() + "的戰利品，再等一下吧。");
+            return false;
+        }
+        if (!p.inventory().canAdd(item.template(), item.quantity())) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你身上的東西太多了，拿不下" + item.displayName() + "。");
+            return false;
+        }
+        groundItems.remove(item.id());
+        p.inventory().add(item.template(), item.quantity());
+        broadcast(ServerMessage.newBuilder().setEntityLeft(EntityLeft.newBuilder().setId(item.id())).build());
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你撿起了" + item.displayName() + "。");
+        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 撿起了" + item.displayName() + "。", p);
+        return true;
+    }
+
+    void drop(PlayerEntity p, InventoryEntry entry) {
+        if (entry.equipped()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你得先卸下" + entry.template().name() + "。");
+            return;
+        }
+        String name = entry.displayName();
+        int quantity = entry.quantity();
+        p.inventory().remove(entry, quantity);
+        spawnGroundItem(entry.template(), quantity, p.x(), p.z(), null);
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你丟下了" + name + "。");
+        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 丟下了" + name + "。", p);
+    }
+
+    void equip(PlayerEntity p, InventoryEntry entry) {
+        ItemTemplate t = entry.template();
+        if (!t.isEquipment()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, t.name() + "不能裝備。");
+            return;
+        }
+        if (entry.equipped()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你已經裝備著" + t.name() + "了。");
+            return;
+        }
+        p.inventory().equip(entry).ifPresent(old ->
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你卸下了" + old.template().name() + "。"));
+        p.refreshStats();
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你裝備了" + t.name() + "。（" + t.statSummary() + "）");
+    }
+
+    void unequip(PlayerEntity p, InventoryEntry entry) {
+        if (!entry.equipped()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你並沒有裝備" + entry.template().name() + "。");
+            return;
+        }
+        p.inventory().unequip(entry);
+        p.refreshStats();
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你卸下了" + entry.template().name() + "。");
+    }
+
+    void use(PlayerEntity p, InventoryEntry entry) {
+        ItemTemplate t = entry.template();
+        if (t.type() != ItemType.CONSUMABLE) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, t.name() + "不能使用。");
+        } else if (tick < p.nextUseTick) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你還在吞上一口，慢慢來。");
+        } else if (p.hp() >= p.maxHp()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你現在精神飽滿，不需要" + t.name() + "。");
+        } else {
+            int before = p.hp();
+            p.heal(t.heal());
+            p.inventory().remove(entry, 1);
+            p.nextUseTick = tick + (long) USE_COOLDOWN_SECONDS * tickRate;
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你吃下了" + t.name() + "，回復了 " + (p.hp() - before) + " 點生命。");
+        }
+    }
+
+    private static ServerMessage inventoryMessage(Inventory inventory) {
+        com.theages.protocol.v1.Inventory.Builder msg = com.theages.protocol.v1.Inventory.newBuilder()
+            .setCapacity(Inventory.CAPACITY);
+        for (InventoryEntry e : inventory.entries()) {
+            ItemTemplate t = e.template();
+            msg.addItems(InventoryItem.newBuilder()
+                .setUid(e.uid())
+                .setTemplateId(t.id())
+                .setName(t.name())
+                .setDescription(t.description())
+                .setQuantity(e.quantity())
+                .setType(toProto(t.type()))
+                .setSlot(t.slot() == null ? com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_UNSPECIFIED : toProto(t.slot()))
+                .setEquipped(e.equipped())
+                .setAttack(t.attack())
+                .setDefense(t.defense())
+                .setMaxHp(t.maxHp())
+                .setHeal(t.heal()));
+        }
+        return ServerMessage.newBuilder().setInventory(msg).build();
+    }
+
+    private static com.theages.protocol.v1.ItemType toProto(ItemType type) {
+        return switch (type) {
+            case EQUIPMENT -> com.theages.protocol.v1.ItemType.ITEM_TYPE_EQUIPMENT;
+            case CONSUMABLE -> com.theages.protocol.v1.ItemType.ITEM_TYPE_CONSUMABLE;
+            case MISC -> com.theages.protocol.v1.ItemType.ITEM_TYPE_MISC;
+        };
+    }
+
+    private static com.theages.protocol.v1.EquipSlot toProto(EquipSlot slot) {
+        return switch (slot) {
+            case WEAPON -> com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_WEAPON;
+            case HEAD -> com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_HEAD;
+            case BODY -> com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_BODY;
+            case FEET -> com.theages.protocol.v1.EquipSlot.EQUIP_SLOT_FEET;
+        };
     }
 
     void sendText(PlayerEntity to, TextChannel channel, String text) {

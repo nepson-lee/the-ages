@@ -69,6 +69,19 @@ class GameFlowIntegrationTest {
         assertThat(full.getSnapshot().getEntitiesList())
             .as("content.yml 的 NPC 已生成")
             .anyMatch(e -> e.getKind() == com.theages.protocol.v1.EntityKind.ENTITY_KIND_NPC && e.getModel().equals("wolf"));
+
+        ServerMessage inventory = null;
+        for (ServerMessage msg; (msg = received.poll(5, TimeUnit.SECONDS)) != null; ) {
+            if (msg.hasInventory()) {
+                inventory = msg;
+                break;
+            }
+        }
+        assertThat(inventory).as("進場後會收到背包").isNotNull();
+        assertThat(inventory.getInventory().getItemsList())
+            .as("出生裝備已穿上")
+            .anyMatch(i -> i.getTemplateId().equals("wooden-sword") && i.getEquipped())
+            .anyMatch(i -> i.getTemplateId().equals("cloth-shirt") && i.getEquipped());
         session.close();
     }
 

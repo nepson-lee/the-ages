@@ -136,6 +136,10 @@ body,
   background: var(--hp);
   transition: width 0.2s;
 }
+.name-label.item .name {
+  color: #ffe9a8;
+  font-size: 12px;
+}
 .name-label.npc .hp .fill {
   background: var(--npc-hp);
 }
@@ -264,4 +268,138 @@ body,
   background: rgba(0, 0, 0, 0.35);
   color: var(--text);
   outline: none;
+}
+
+/* ===== 背包 ===== */
+.hud .bag-button {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #39424d;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  cursor: pointer;
+}
+.inventory {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: min(340px, calc(100% - 32px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 14px;
+}
+.inventory.hidden {
+  display: none;
+}
+.inventory header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.inventory h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.1em;
+}
+.inventory .count {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: normal;
+}
+.inventory button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #39424d;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  cursor: pointer;
+}
+.inventory button:hover {
+  border-color: var(--accent);
+}
+.inventory button.danger:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+.inventory .close {
+  font-size: 16px;
+  border: 0;
+  background: none;
+}
+.inventory .slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 10px 0;
+}
+.inventory .slot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed #39424d;
+}
+.inventory .slot.filled {
+  border-style: solid;
+  border-color: rgba(217, 164, 65, 0.6);
+}
+.inventory .slot-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.inventory .slot button {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.inventory .items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.inventory .items li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.inventory .items li.empty {
+  display: block;
+  color: var(--muted);
+}
+.inventory .item-name.type-equipment {
+  color: #9fd0ff;
+}
+.inventory .item-name.type-consumable {
+  color: var(--room);
+}
+.inventory .item-stats {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inventory .actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.inventory .hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
 }

@@ -3,11 +3,93 @@ theages:
   world:
     starting-zone: newbie-village
 
+    # 新角色出生時身上的物品（裝備類會自動穿上）
+    starting-items: [wooden-sword, cloth-shirt]
+
+    # 物品模板。
+    #   type        equipment（裝備）、consumable（消耗品）、misc（材料雜物）
+    #   slot        裝備欄位：weapon、head、body、feet
+    #   heal        消耗品使用後回復的生命
+    #   max-stack   同一格最多疊幾個（裝備固定 1，其他預設 20）
+    item-templates:
+      - id: wooden-sword
+        name: 木劍
+        keywords: [sword]
+        description: 一把用老橡木削成的練習劍，劍身上還留著刀痕。
+        type: equipment
+        slot: weapon
+        attack: 2
+      - id: cloth-shirt
+        name: 布衣
+        keywords: [shirt, cloth]
+        description: 粗麻布縫製的上衣，穿起來有點刺刺的。
+        type: equipment
+        slot: body
+        defense: 1
+      - id: wolf-fang-dagger
+        name: 狼牙匕首
+        keywords: [dagger]
+        description: 以狼牙磨成的短刃，鋒利得能劃開皮革。
+        type: equipment
+        slot: weapon
+        attack: 6
+      - id: wolf-pelt-vest
+        name: 狼皮背心
+        keywords: [vest]
+        description: 用整張狼皮縫成的背心，厚實又保暖。
+        type: equipment
+        slot: body
+        defense: 4
+        max-hp: 10
+      - id: leather-cap
+        name: 皮帽
+        keywords: [cap, hat]
+        description: 一頂簡單的皮帽，能擋住從樹上掉下來的松果。
+        type: equipment
+        slot: head
+        defense: 2
+      - id: straw-sandals
+        name: 草鞋
+        keywords: [sandals, shoes]
+        description: 稻草編成的草鞋，走起路來沙沙作響。
+        type: equipment
+        slot: feet
+        defense: 1
+        max-hp: 5
+      - id: rabbit-meat
+        name: 兔肉
+        keywords: [meat]
+        description: 一塊新鮮的兔肉，烤一烤應該很香。
+        type: consumable
+        heal: 15
+      - id: egg
+        name: 雞蛋
+        keywords: [egg]
+        description: 一顆還帶著餘溫的雞蛋。
+        type: consumable
+        heal: 8
+      - id: rabbit-fur
+        name: 兔毛
+        keywords: [fur]
+        description: 一撮柔軟的兔毛，村裡的裁縫也許用得上。
+        type: misc
+      - id: feather
+        name: 雞毛
+        keywords: [feather]
+        description: 一根雞毛，拿來搔癢剛剛好。
+        type: misc
+      - id: wolf-pelt
+        name: 狼皮
+        keywords: [pelt]
+        description: 一張粗硬的灰色狼皮。
+        type: misc
+
     # NPC 模板：同一模板可以在多個區域重複放置。
     #   keywords        kill/look 指令可用的英文代稱（MUD 傳統）
     #   verb            攻擊時的敘述動詞，例如「野狼撲咬了你」
     #   aggressive      true = 玩家靠近時主動攻擊
     #   wander-radius   閒晃時離出生點的最遠距離
+    #   loot            掉寶表：每列獨立擲骰，chance 為 0～1 的機率，min/max 為數量
     npc-templates:
       - id: rabbit
         name: 野兔
@@ -23,6 +105,10 @@ theages:
         aggressive: false
         respawn-seconds: 15
         wander-radius: 5
+        loot:
+          - { item: rabbit-meat, chance: 0.6 }
+          - { item: rabbit-fur, chance: 0.4, min: 1, max: 2 }
+          - { item: straw-sandals, chance: 0.04 }
 
       - id: chicken
         name: 老母雞
@@ -38,6 +124,10 @@ theages:
         aggressive: false
         respawn-seconds: 10
         wander-radius: 4
+        loot:
+          - { item: egg, chance: 0.5, min: 1, max: 2 }
+          - { item: feather, chance: 0.5, min: 1, max: 3 }
+          - { item: straw-sandals, chance: 0.05 }
 
       - id: wolf
         name: 野狼
@@ -53,6 +143,11 @@ theages:
         aggressive: true
         respawn-seconds: 30
         wander-radius: 6
+        loot:
+          - { item: wolf-pelt, chance: 0.5 }
+          - { item: wolf-fang-dagger, chance: 0.15 }
+          - { item: wolf-pelt-vest, chance: 0.1 }
+          - { item: leather-cap, chance: 0.1 }
 
     zones:
       - id: newbie-village

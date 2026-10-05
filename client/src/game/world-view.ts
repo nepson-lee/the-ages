@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { EntityKind, type CombatEvent, type EntityState } from "../gen/theages/v1/game_pb";
-import { createModel } from "./models";
+import { createItemModel, createModel } from "./models";
 
 const CAMERA_OFFSET = new THREE.Vector3(0, 14, 12);
 /** 位置平滑的速度（越大越快貼齊伺服器位置）。 */
@@ -11,6 +11,7 @@ const FLOATER_MS = 1000;
 export interface WorldViewHandlers {
   onGroundClick(x: number, z: number): void;
   onEntityClick(id: number): void;
+  onItemClick(id: number): void;
 }
 
 interface EntityView {
@@ -142,13 +143,14 @@ export class WorldView {
 
   private create(state: EntityState, pos: THREE.Vector3): EntityView {
     const isSelf = state.id === this.selfId;
-    const model = createModel(state.model, isSelf);
+    const model = state.kind === EntityKind.ITEM ? createItemModel(state.model) : createModel(state.model, isSelf);
     const group = new THREE.Group().add(model.object);
     group.position.copy(pos);
     group.userData.entityId = state.id;
 
     const label = document.createElement("div");
-    label.className = `name-label ${state.kind === EntityKind.NPC ? "npc" : "player"}${isSelf ? " self" : ""}`;
+    const kindClass = state.kind === EntityKind.NPC ? "npc" : state.kind === EntityKind.ITEM ? "item" : "player";
+    label.className = `name-label ${kindClass}${isSelf ? " self" : ""}`;
     label.innerHTML = `<span class="name"></span><div class="hp"><div class="fill"></div></div>`;
     const labelObj = new CSS2DObject(label);
     labelObj.position.set(0, model.labelHeight, 0);
@@ -164,7 +166,7 @@ export class WorldView {
     const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
     view.hpFill.style.width = `${Math.round(ratio * 100)}%`;
     // 滿血又不在戰鬥時隱藏血條，畫面比較乾淨
-    view.label.classList.toggle("show-hp", ratio < 1 || s.targetId !== 0);
+    view.label.classList.toggle("show-hp", s.kind !== EntityKind.ITEM && (ratio < 1 || s.targetId !== 0));
   }
 
   private handlePointer(ev: PointerEvent): void {
@@ -175,16 +177,21 @@ export class WorldView {
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
 
-    // 先看有沒有點到 NPC，沒有才算點地面
-    const groups = [...this.entities.values()].filter((v) => v.state.kind === EntityKind.NPC).map((v) => v.group);
-    const hitEntity = this.raycaster.intersectObjects(groups, true)[0];
+    // 先看有沒有點到 NPC 或地上物品，沒有才算點地面
+    const clickable = [...this.entities.values()].filter((v) => v.state.kind === EntityKind.NPC || v.state.kind === EntityKind.ITEM);
+    const hitEntity = this.raycaster.intersectObjects(clickable.map((v) => v.group), true)[0];
     if (hitEntity) {
       let o: THREE.Object3D | null = hitEntity.object;
       while (o && o.userData.entityId === undefined) {
         o = o.parent;
       }
-      if (o) {
-        this.handlers.onEntityClick(o.userData.entityId as number);
+      const view = o ? this.entities.get(o.userData.entityId as number) : undefined;
+      if (view?.state.kind === EntityKind.ITEM) {
+        this.handlers.onItemClick(view.state.id);
+        return;
+      }
+      if (view) {
+        this.handlers.onEntityClick(view.state.id);
         return;
       }
     }
@@ -212,8 +219,17 @@ export class WorldView {
     const dt = Math.min(this.timer.getDelta(), 0.1);
     const alpha = 1 - Math.exp(-SMOOTHING * dt);
 
+    const now = performance.now() / 1000;
     for (const view of this.entities.values()) {
       const { group, target } = view;
+      if (view.state.kind === EntityKind.ITEM) {
+        const bob = group.getObjectByName("bob");
+        if (bob) {
+          bob.position.y = 0.3 + Math.sin(now * 2.5 + view.state.id) * 0.06;
+          bob.rotation.y = now * 1.2;
+        }
+        continue;
+      }
       const dx = target.x - group.position.x;
       const dz = target.z - group.position.z;
       // 移動時面向前進方向；原地戰鬥時面向對手

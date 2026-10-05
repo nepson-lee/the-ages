@@ -2,6 +2,7 @@ package com.theages.server.world;
 
 import com.theages.protocol.v1.EntityKind;
 import com.theages.protocol.v1.SelfStats;
+import com.theages.server.world.item.Inventory;
 
 /** 區域內的玩家。只能在所屬區域的 tick 執行緒存取。 */
 public final class PlayerEntity extends Entity {
@@ -10,17 +11,29 @@ public final class PlayerEntity extends Entity {
     static final float SPEED = 5f;
 
     private final long characterId;
+    private final Inventory inventory;
     private PlayerConnection connection;
     private int exp;
 
+    /** 正在走過去撿的地上物品；null = 沒有。 */
+    GroundItem pendingPickup;
+    /** 下一次可以使用消耗品的 tick。 */
+    long nextUseTick;
+
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
-                 int level, int exp, int hp) {
+                 int level, int exp, int hp, Inventory inventory) {
         super(id, name, x, z);
         this.characterId = characterId;
         this.connection = connection;
         this.exp = exp;
+        this.inventory = inventory;
         applyLevel(Math.max(1, level));
         setHp(hp <= 0 ? maxHp : hp);
+    }
+
+    PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
+                 int level, int exp, int hp) {
+        this(id, characterId, name, connection, x, z, level, exp, hp, new Inventory());
     }
 
     // ===== 等級公式（之後可移到內容檔） =====
@@ -43,9 +56,15 @@ public final class PlayerEntity extends Entity {
 
     private void applyLevel(int newLevel) {
         level = newLevel;
-        maxHp = maxHpFor(newLevel);
-        attack = attackFor(newLevel);
-        defense = defenseFor(newLevel);
+        refreshStats();
+    }
+
+    /** 數值 = 等級基礎值 + 裝備加成。換裝備後呼叫。 */
+    void refreshStats() {
+        maxHp = maxHpFor(level) + inventory.bonusMaxHp();
+        attack = attackFor(level) + inventory.bonusAttack();
+        defense = defenseFor(level) + inventory.bonusDefense();
+        setHp(hp()); // 生命上限變低時一併降低目前生命
         markStatsDirty();
     }
 
@@ -86,7 +105,7 @@ public final class PlayerEntity extends Entity {
     }
 
     CharacterSnapshot snapshot(String zoneId) {
-        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp());
+        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), inventory.toRecords());
     }
 
     void replaceConnection(PlayerConnection newConnection) {
@@ -112,6 +131,10 @@ public final class PlayerEntity extends Entity {
 
     public long characterId() {
         return characterId;
+    }
+
+    public Inventory inventory() {
+        return inventory;
     }
 
     public PlayerConnection connection() {

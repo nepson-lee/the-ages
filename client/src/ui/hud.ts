@@ -16,7 +16,8 @@ export class Hud {
     this.element.innerHTML = `
       <div class="hud-title"><span class="zone"></span><span class="level"></span></div>
       <div class="bar hp"><div class="fill"></div><span class="text"></span></div>
-      <div class="bar exp"><div class="fill"></div><span class="text"></span></div>`;
+      <div class="bar exp"><div class="fill"></div><span class="text"></span></div>
+      <button type="button" class="bag-button" title="背包（I）">背包</button>`;
     const q = (s: string) => this.element.querySelector<HTMLElement>(s)!;
     this.zone = q(".zone");
     this.level = q(".level");
@@ -24,6 +25,10 @@ export class Hud {
     this.hpText = q(".hp .text");
     this.expFill = q(".exp .fill");
     this.expText = q(".exp .text");
+  }
+
+  onInventoryClick(handler: () => void): void {
+    this.element.querySelector(".bag-button")!.addEventListener("click", handler);
   }
 
   setZone(name: string): void {

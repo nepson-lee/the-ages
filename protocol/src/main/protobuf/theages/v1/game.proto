@@ -49,6 +49,7 @@ message ServerMessage {
     TextOutput text = 4;
     CombatEvent combat = 5;
     SelfStats self_stats = 6;
+    Inventory inventory = 7;
   }
 }
 
@@ -64,6 +65,8 @@ enum EntityKind {
   ENTITY_KIND_UNSPECIFIED = 0;
   ENTITY_KIND_PLAYER = 1;
   ENTITY_KIND_NPC = 2;
+  // 地上的物品：model 為物品模板 id；點擊後送出 `get #<id>` 指令撿起。
+  ENTITY_KIND_ITEM = 3;
 }
 
 message EntityState {
@@ -121,4 +124,42 @@ message SelfStats {
   uint32 max_hp = 5;
   uint32 attack = 6;
   uint32 defense = 7;
+}
+
+enum ItemType {
+  ITEM_TYPE_UNSPECIFIED = 0;
+  ITEM_TYPE_EQUIPMENT = 1;
+  ITEM_TYPE_CONSUMABLE = 2;
+  ITEM_TYPE_MISC = 3;
+}
+
+enum EquipSlot {
+  EQUIP_SLOT_UNSPECIFIED = 0;
+  EQUIP_SLOT_WEAPON = 1;
+  EQUIP_SLOT_HEAD = 2;
+  EQUIP_SLOT_BODY = 3;
+  EQUIP_SLOT_FEET = 4;
+}
+
+// 背包中的一格。uid 在同一次連線內穩定，指令可用 `#<uid>` 指定（例如 `wear #3`）。
+message InventoryItem {
+  uint32 uid = 1;
+  string template_id = 2;
+  string name = 3;
+  string description = 4;
+  uint32 quantity = 5;
+  ItemType type = 6;
+  EquipSlot slot = 7;
+  bool equipped = 8;
+  int32 attack = 9;
+  int32 defense = 10;
+  int32 max_hp = 11;
+  // 消耗品使用後回復的生命。
+  int32 heal = 12;
+}
+
+// 完整的背包內容，變動時整份重送（最多 capacity 格，資料量很小）。
+message Inventory {
+  repeated InventoryItem items = 1;
+  uint32 capacity = 2;
 }
