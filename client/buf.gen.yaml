@@ -1,0 +1,9 @@
+# 從 protocol 模組的 .proto 產生 TypeScript（輸出到 src/gen，不進版控）。
+version: v2
+inputs:
+  - directory: ../protocol/src/main/protobuf
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts
+clean: true

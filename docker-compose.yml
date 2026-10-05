@@ -1,0 +1,25 @@
+# 本機開發用的資料庫。啟動：docker compose up -d
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: theages
+      POSTGRES_USER: theages
+      POSTGRES_PASSWORD: theages
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U theages -d theages"]
+      interval: 5s
+      retries: 10
+
+  # 之後做線上狀態、跨節點廣播時使用；目前伺服器尚未連線。
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-data:

@@ -1,0 +1,89 @@
+// 時空之門 前後端即時協定（WebSocket 二進位訊息）。
+// 修改後：伺服器端由 Maven 重新產生 Java；前端執行 `npm run gen` 重新產生 TypeScript。
+// 相容性規則：已發佈的欄位編號不可重用或改型別，刪除欄位請改用 reserved。
+syntax = "proto3";
+
+package theages.v1;
+
+option java_package = "com.theages.protocol.v1";
+option java_multiple_files = true;
+
+// 地面座標（世界單位為公尺，Y 軸朝上，玩家移動在 XZ 平面）。
+message Vec2 {
+  float x = 1;
+  float z = 2;
+}
+
+// ===== Client → Server =====
+
+message ClientMessage {
+  oneof payload {
+    MoveTo move_to = 1;
+    Command command = 2;
+  }
+}
+
+// 點擊地面移動：伺服器負責實際位移，客戶端只表達意圖。
+message MoveTo {
+  Vec2 target = 1;
+}
+
+// MUD 風格文字指令，例如 "say 大家好"、"look"、"who"。
+message Command {
+  string text = 1;
+}
+
+// ===== Server → Client =====
+
+message ServerMessage {
+  oneof payload {
+    Welcome welcome = 1;
+    WorldSnapshot snapshot = 2;
+    EntityLeft entity_left = 3;
+    TextOutput text = 4;
+  }
+}
+
+message Welcome {
+  uint32 self_id = 1;
+  string zone_id = 2;
+  string zone_name = 3;
+  uint32 tick_rate = 4;
+  float zone_size = 5;
+}
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_PLAYER = 1;
+  ENTITY_KIND_NPC = 2;
+}
+
+message EntityState {
+  uint32 id = 1;
+  string name = 2;
+  EntityKind kind = 3;
+  Vec2 position = 4;
+}
+
+// full = true 時為完整快照（剛進入區域），否則只包含本 tick 有變動的實體。
+message WorldSnapshot {
+  uint64 tick = 1;
+  bool full = 2;
+  repeated EntityState entities = 3;
+}
+
+message EntityLeft {
+  uint32 id = 1;
+}
+
+enum TextChannel {
+  TEXT_CHANNEL_UNSPECIFIED = 0;
+  TEXT_CHANNEL_SYSTEM = 1;
+  TEXT_CHANNEL_SAY = 2;
+  TEXT_CHANNEL_ROOM = 3;
+}
+
+message TextOutput {
+  TextChannel channel = 1;
+  string text = 2;
+}

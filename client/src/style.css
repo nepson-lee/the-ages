@@ -1,0 +1,157 @@
+:root {
+  --bg: #12161c;
+  --panel: rgba(14, 18, 24, 0.78);
+  --text: #e6e2d6;
+  --muted: #9aa3ad;
+  --accent: #d9a441;
+  --say: #8fd3ff;
+  --room: #c8e6a0;
+  --error: #ff8a80;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+/* ===== 登入 ===== */
+.login {
+  width: min(360px, calc(100% - 32px));
+  margin: 12vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login h1 {
+  margin: 0;
+  font-size: 2.4rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+  color: var(--accent);
+}
+.login .subtitle {
+  margin: 0 0 12px;
+  text-align: center;
+  color: var(--muted);
+  letter-spacing: 0.4em;
+}
+.login input,
+.login button {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #39424d;
+}
+.login input {
+  background: #1b2129;
+  color: var(--text);
+}
+.login .buttons {
+  display: flex;
+  gap: 8px;
+}
+.login button {
+  flex: 1;
+  cursor: pointer;
+  background: var(--accent);
+  color: #1b1408;
+  border-color: var(--accent);
+}
+.login button.secondary {
+  background: transparent;
+  color: var(--accent);
+}
+.login button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.login .error {
+  min-height: 1.4em;
+  color: var(--error);
+  margin: 0;
+}
+
+/* ===== 遊戲 ===== */
+.game {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+.viewport canvas {
+  display: block;
+}
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.name-label {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.name-label.self {
+  color: var(--accent);
+}
+.hud {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--panel);
+  font-weight: bold;
+  letter-spacing: 0.1em;
+}
+.console {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.console .log {
+  height: 200px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.console .line.echo {
+  color: var(--muted);
+}
+.console .line.say {
+  color: var(--say);
+}
+.console .line.room {
+  color: var(--room);
+}
+.console .command {
+  font: inherit;
+  border: 0;
+  border-top: 1px solid #39424d;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  outline: none;
+}

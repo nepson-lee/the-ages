@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: the-ages-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/theages
+    username: theages
+    password: theages
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  threads:
+    virtual:
+      # 需要 Java 21 以上才會生效；升級 JDK 後改成 true。
+      enabled: false
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+theages:
+  jwt:
+    # 開發用金鑰（Base64，至少 32 bytes）。正式環境務必用環境變數 THEAGES_JWT_SECRET 覆寫。
+    secret: ZGV2LW9ubHktc2VjcmV0LWNoYW5nZS1tZS1pbi1wcm9kdWN0aW9uLTEyMzQ1Ng==
+    ttl: 12h
+  websocket:
+    allowed-origins:
+      - http://localhost:5173
+  world:
+    tick-rate: 10
+    starting-zone: newbie-village
+    zones:
+      - id: newbie-village
+        name: 新手村
+        description: 晨霧籠罩著這座寧靜的小村莊，村中央的古井旁站著幾位剛踏上旅途的冒險者。
+        size: 60
+        spawn: { x: 0, z: 0 }
