@@ -138,6 +138,10 @@ let activeHotbar: Hotbar | null = null;
 let activeSkillPanel: SkillPanel | null = null;
 // 指令列有焦點時按鍵不會傳到這裡（console.ts 會 stopPropagation）
 window.addEventListener("keydown", (ev) => {
+  // 按住按鍵時瀏覽器會自動連發；忽略，避免一直送技能指令而被伺服器的頻率限制擋下
+  if (ev.repeat) {
+    return;
+  }
   if (ev.key === "Enter") {
     activeConsole?.focus();
   } else if (ev.key === "i" || ev.key === "I") {

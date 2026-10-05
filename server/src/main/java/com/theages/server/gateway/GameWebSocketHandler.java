@@ -2,6 +2,9 @@ package com.theages.server.gateway;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.theages.protocol.v1.ClientMessage;
+import com.theages.protocol.v1.ServerMessage;
+import com.theages.protocol.v1.TextChannel;
+import com.theages.protocol.v1.TextOutput;
 import com.theages.server.character.CharacterItemRepository;
 import com.theages.server.character.CharacterQuestRepository;
 import com.theages.server.character.CharacterSkillRepository;
@@ -30,6 +33,10 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GameWebSocketHandler.class);
     private static final String CONNECTION_ATTR = "connection";
+    private static final String LIMITS_ATTR = "limits";
+    private static final ServerMessage TOO_FAST = ServerMessage.newBuilder()
+        .setText(TextOutput.newBuilder().setChannel(TextChannel.TEXT_CHANNEL_SYSTEM).setText("你的動作太快了，請稍候再試。"))
+        .build();
     private static final int MAX_COMMAND_LENGTH = 256;
 
     private final World world;
@@ -37,16 +44,19 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
     private final CharacterItemRepository items;
     private final CharacterQuestRepository quests;
     private final CharacterSkillRepository skills;
+    private final RateLimitProperties rateLimits;
     /** 所有區域的線上角色，用來處理同一角色重複登入。 */
     private final Map<Long, WebSocketPlayerConnection> online = new ConcurrentHashMap<>();
 
     public GameWebSocketHandler(World world, PlayerCharacterRepository characters, CharacterItemRepository items,
-                                CharacterQuestRepository quests, CharacterSkillRepository skills) {
+                                CharacterQuestRepository quests, CharacterSkillRepository skills,
+                                RateLimitProperties rateLimits) {
         this.world = world;
         this.characters = characters;
         this.items = items;
         this.quests = quests;
         this.skills = skills;
+        this.rateLimits = rateLimits;
     }
 
     @Override
@@ -65,6 +75,7 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         WebSocketPlayerConnection connection = new WebSocketPlayerConnection(session, c.getId(), zone);
         online.put(c.getId(), connection);
         session.getAttributes().put(CONNECTION_ATTR, connection);
+        session.getAttributes().put(LIMITS_ATTR, new ConnectionLimits(rateLimits, System::nanoTime));
         zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
             c.getLevel(), c.getExp(), c.getHp(), c.getGold(), c.getMp(), items.loadRecords(c.getId()),
             quests.loadRecords(c.getId()), skills.loadIds(c.getId())));
@@ -74,7 +85,12 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
         WebSocketPlayerConnection connection = (WebSocketPlayerConnection) session.getAttributes().get(CONNECTION_ATTR);
-        if (connection == null) {
+        ConnectionLimits limits = (ConnectionLimits) session.getAttributes().get(LIMITS_ATTR);
+        if (connection == null || limits == null) {
+            return;
+        }
+        if (message.getPayloadLength() > rateLimits.maxMessageBytes()) {
+            session.close(CloseStatus.TOO_BIG_TO_PROCESS);
             return;
         }
         ClientMessage msg;
@@ -82,6 +98,15 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
             msg = ClientMessage.parseFrom(message.getPayload());
         } catch (InvalidProtocolBufferException e) {
             session.close(CloseStatus.BAD_DATA);
+            return;
+        }
+        ConnectionLimits.Kind kind = switch (msg.getPayloadCase()) {
+            case MOVE_TO -> ConnectionLimits.Kind.MOVE;
+            case ATTACK -> ConnectionLimits.Kind.ATTACK;
+            case COMMAND -> ConnectionLimits.Kind.COMMAND;
+            case PAYLOAD_NOT_SET -> null;
+        };
+        if (kind == null || !admit(session, connection, limits.check(kind))) {
             return;
         }
         Zone zone = connection.zone(); // 換區後會指向新的區域
@@ -98,6 +123,24 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
             case PAYLOAD_NOT_SET -> {
             }
         }
+    }
+
+    /** 依頻率限制的判定放行、提示或斷線；回傳 true 表示放行。 */
+    private boolean admit(WebSocketSession session, WebSocketPlayerConnection connection,
+                          ConnectionLimits.Verdict verdict) throws java.io.IOException {
+        switch (verdict) {
+            case ALLOW -> {
+                return true;
+            }
+            case REJECT_AND_NOTIFY -> connection.send(TOO_FAST);
+            case REJECT -> {
+            }
+            case DISCONNECT -> {
+                log.warn("角色 {} 送出訊息過於頻繁，中斷連線", connection.characterId());
+                session.close(CloseStatus.POLICY_VIOLATION.withReason("指令太頻繁，已中斷連線"));
+            }
+        }
+        return false;
     }
 
     @Override

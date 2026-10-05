@@ -35,5 +35,16 @@ theages:
   websocket:
     allowed-origins:
       - http://localhost:5173
+  # 每條連線的訊息頻率限制（權杖桶）：burst = 最多連續幾則，per-second = 長時間平均每秒幾則
+  rate-limit:
+    move: { burst: 10, per-second: 5 }
+    attack: { burst: 5, per-second: 2 }
+    # 文字指令含聊天、技能、背包與商店按鈕；最嚴格，主要用來擋洗頻
+    command: { burst: 8, per-second: 2 }
+    notice-interval: 3s
+    # 10 秒內被擋 50 次視為惡意洗頻，直接斷線
+    abuse-window: 10s
+    abuse-rejections: 50
+    max-message-bytes: 4096
   world:
     tick-rate: 10
