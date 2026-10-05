@@ -10,8 +10,8 @@ public sealed interface ZoneEvent {
     PlayerConnection connection();
 
     record Join(PlayerConnection connection, long characterId, String name, float x, float z,
-                int level, int exp, int hp, int gold, List<ItemRecord> items, List<QuestRecord> quests)
-        implements ZoneEvent {
+                int level, int exp, int hp, int gold, int mp, List<ItemRecord> items, List<QuestRecord> quests,
+                List<String> skills) implements ZoneEvent {
     }
 
     record Leave(PlayerConnection connection) implements ZoneEvent {

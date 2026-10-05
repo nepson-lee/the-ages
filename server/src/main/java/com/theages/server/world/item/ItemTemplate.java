@@ -7,6 +7,7 @@ import java.util.Locale;
  * 物品的靜態資料，由 {@code world/content.yml} 載入。
  *
  * @param slot     只有裝備需要
+ * @param mana     消耗品使用後回復的內力
  * @param value    物品價值（銅錢），商店依此定價與收購；0 = 沒有價值
  * @param maxStack 同一格最多疊幾個；裝備固定為 1
  */
@@ -21,6 +22,7 @@ public record ItemTemplate(
     int defense,
     int maxHp,
     int heal,
+    int mana,
     int value,
     Integer maxStack) {
 
@@ -53,6 +55,9 @@ public record ItemTemplate(
         append(sb, "生命上限", maxHp);
         if (heal > 0) {
             append(sb, "回復生命", heal);
+        }
+        if (mana > 0) {
+            append(sb, "回復內力", mana);
         }
         return sb.toString();
     }

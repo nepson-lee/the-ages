@@ -71,8 +71,33 @@ final class Combat {
             .setKilled(killed)
             .build());
         describe(attacker, target, hit, damage);
+        afterHit(attacker, target, tick);
+    }
 
-        if (killed) {
+    /**
+     * 技能攻擊：必中，傷害 = 一般攻擊傷害 × power。回傳造成的傷害。
+     * 目標若還沒在打施放者，會反擊（和一般攻擊一樣）。
+     */
+    int skillHit(PlayerEntity attacker, Entity target, double power, String skillName, long tick) {
+        attacker.lastCombatTick = tick;
+        target.lastCombatTick = tick;
+        int damage = Math.max(1, (int) Math.round(rollDamage(attacker, target) * power));
+        target.damage(damage);
+        zone.broadcastCombat(CombatEvent.newBuilder()
+            .setAttackerId(attacker.id())
+            .setTargetId(target.id())
+            .setDamage(damage)
+            .setKilled(target.isDead())
+            .setSkillName(skillName)
+            .build());
+        zone.sendText(attacker, TextChannel.TEXT_CHANNEL_SYSTEM,
+            "你使出「" + skillName + "」，對" + target.name() + "造成 " + damage + " 點傷害！");
+        afterHit(attacker, target, tick);
+        return damage;
+    }
+
+    private void afterHit(Entity attacker, Entity target, long tick) {
+        if (target.isDead()) {
             zone.onKilled(target, attacker);
         } else if (target instanceof NpcEntity npc && npc.combatTarget() == null) {
             // 被打的 NPC 會反擊，稍微延遲讓玩家先看到自己的攻擊

@@ -4,6 +4,7 @@ import com.theages.protocol.v1.EntityKind;
 import com.theages.protocol.v1.SelfStats;
 import com.theages.server.world.item.Inventory;
 import com.theages.server.world.quest.QuestLog;
+import com.theages.server.world.skill.SkillBook;
 import java.util.List;
 
 /** 區域內的玩家。只能在所屬區域的 tick 執行緒存取。 */
@@ -15,6 +16,9 @@ public final class PlayerEntity extends Entity {
     private final long characterId;
     private final Inventory inventory;
     private final QuestLog quests;
+    private final SkillBook skills;
+    private int mp;
+    private int maxMp;
     private PlayerConnection connection;
     private int exp;
     private int gold;
@@ -29,13 +33,15 @@ public final class PlayerEntity extends Entity {
     Portal pendingExit;
     /** 走到 pendingShop 之後要做的事：true = 對話（任務），false = 打開商店。 */
     boolean pendingTalk;
+    /** 目前在旁邊的訓練師（技能面板顯示他能教的技能）；null = 沒有。 */
+    NpcEntity openTrainer;
     /** 上一次送出的任務標記，沒變就不重送。 */
     List<com.theages.protocol.v1.QuestMarker> lastQuestMarkers = List.of();
     /** 下一次可以使用消耗品的 tick。 */
     long nextUseTick;
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
-                 int level, int exp, int hp, int gold, Inventory inventory, QuestLog quests) {
+                 int level, int exp, int hp, int gold, int mp, Inventory inventory, QuestLog quests, SkillBook skills) {
         super(id, name, x, z);
         this.characterId = characterId;
         this.connection = connection;
@@ -43,13 +49,16 @@ public final class PlayerEntity extends Entity {
         this.gold = Math.max(0, gold);
         this.inventory = inventory;
         this.quests = quests;
+        this.skills = skills;
         applyLevel(Math.max(1, level));
         setHp(hp <= 0 ? maxHp : hp);
+        setMp(mp < 0 ? maxMp : mp);
     }
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
                  int level, int exp, int hp) {
-        this(id, characterId, name, connection, x, z, level, exp, hp, 0, new Inventory(), new QuestLog());
+        this(id, characterId, name, connection, x, z, level, exp, hp, 0, -1, new Inventory(), new QuestLog(),
+            new SkillBook());
     }
 
     // ===== 等級公式（之後可移到內容檔） =====
@@ -66,6 +75,10 @@ public final class PlayerEntity extends Entity {
         return 2 + (level - 1);
     }
 
+    static int maxMpFor(int level) {
+        return 30 + (level - 1) * 8;
+    }
+
     static int expToNext(int level) {
         return level * 100;
     }
@@ -75,12 +88,14 @@ public final class PlayerEntity extends Entity {
         refreshStats();
     }
 
-    /** 數值 = 等級基礎值 + 裝備加成。換裝備後呼叫。 */
+    /** 數值 = 等級基礎值 + 裝備加成 + 增益技能。換裝備、增益開始或結束時呼叫。 */
     void refreshStats() {
         maxHp = maxHpFor(level) + inventory.bonusMaxHp();
-        attack = attackFor(level) + inventory.bonusAttack();
-        defense = defenseFor(level) + inventory.bonusDefense();
+        maxMp = maxMpFor(level);
+        attack = attackFor(level) + inventory.bonusAttack() + skills.buffAttack();
+        defense = defenseFor(level) + inventory.bonusDefense() + skills.buffDefense();
         setHp(hp()); // 生命上限變低時一併降低目前生命
+        setMp(mp);
         markStatsDirty();
     }
 
@@ -95,6 +110,8 @@ public final class PlayerEntity extends Entity {
         }
         if (levels > 0) {
             setHp(maxHp);
+            setMp(maxMp);
+            skills.markDirty(); // 可以學的技能可能變了
         }
         markStatsDirty();
         return levels;
@@ -106,6 +123,14 @@ public final class PlayerEntity extends Entity {
         exp -= lost;
         markStatsDirty();
         return lost;
+    }
+
+    void setMp(int value) {
+        int clamped = Math.max(0, Math.min(maxMp, value));
+        if (clamped != mp) {
+            mp = clamped;
+            markStatsDirty();
+        }
     }
 
     void addGold(int amount) {
@@ -133,12 +158,14 @@ public final class PlayerEntity extends Entity {
             .setAttack(attack)
             .setDefense(defense)
             .setGold(gold)
+            .setMp(mp)
+            .setMaxMp(maxMp)
             .build();
     }
 
     CharacterSnapshot snapshot(String zoneId) {
-        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), gold, inventory.toRecords(),
-            quests.toRecords());
+        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), gold, mp, inventory.toRecords(),
+            quests.toRecords(), skills.toIds());
     }
 
     void replaceConnection(PlayerConnection newConnection) {
@@ -172,6 +199,18 @@ public final class PlayerEntity extends Entity {
 
     public QuestLog quests() {
         return quests;
+    }
+
+    public SkillBook skills() {
+        return skills;
+    }
+
+    public int mp() {
+        return mp;
+    }
+
+    public int maxMp() {
+        return maxMp;
     }
 
     public PlayerConnection connection() {

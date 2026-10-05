@@ -43,6 +43,10 @@ public class PlayerCharacter {
     @Column(nullable = false)
     private int gold;
 
+    /** -1 代表滿。 */
+    @Column(nullable = false)
+    private int mp = -1;
+
     protected PlayerCharacter() {
     }
 
@@ -95,7 +99,11 @@ public class PlayerCharacter {
         return gold;
     }
 
-    public void update(String zoneId, float posX, float posZ, int level, int exp, int hp, int gold) {
+    public int getMp() {
+        return mp;
+    }
+
+    public void update(String zoneId, float posX, float posZ, int level, int exp, int hp, int gold, int mp) {
         this.zoneId = zoneId;
         this.posX = posX;
         this.posZ = posZ;
@@ -103,5 +111,6 @@ public class PlayerCharacter {
         this.exp = exp;
         this.hp = hp;
         this.gold = gold;
+        this.mp = mp;
     }
 }

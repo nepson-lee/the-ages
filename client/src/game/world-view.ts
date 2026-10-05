@@ -148,8 +148,10 @@ export class WorldView {
     // 外層給 CSS2DRenderer 定位（它會改寫 transform），內層才做動畫
     const el = document.createElement("div");
     const text = el.appendChild(document.createElement("span"));
-    text.className = `floater ${event.miss ? "miss" : event.targetId === this.selfId ? "hurt" : "hit"}${involvesSelf ? "" : " dim"}`;
-    text.textContent = event.miss ? "閃避" : `-${event.damage}`;
+    const kind = event.heal ? "heal" : event.miss ? "miss" : event.targetId === this.selfId ? "hurt" : "hit";
+    text.className = `floater ${kind}${event.skillName ? " skill" : ""}${involvesSelf ? "" : " dim"}`;
+    const amount = event.miss ? "閃避" : event.heal ? `+${event.damage}` : `-${event.damage}`;
+    text.textContent = event.skillName ? `${event.skillName} ${amount}` : amount;
     // 掛在場景上而不是實體上：目標被打死移除後數字仍會播完
     const obj = new CSS2DObject(el);
     obj.position.copy(target.group.position).setY(target.labelHeight + 0.3);

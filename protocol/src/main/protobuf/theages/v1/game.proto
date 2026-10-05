@@ -56,6 +56,7 @@ message ServerMessage {
     QuestLog quest_log = 11;
     QuestDialog quest_dialog = 12;
     QuestMarkers quest_markers = 13;
+    SkillBook skill_book = 14;
   }
 }
 
@@ -128,6 +129,10 @@ message CombatEvent {
   uint32 damage = 3;
   bool miss = 4;
   bool killed = 5;
+  // 技能造成的效果時為技能名稱（顯示在數字旁邊）。
+  string skill_name = 6;
+  // true = 治療：damage 是回復量。
+  bool heal = 7;
 }
 
 // 自己的角色數值，變動時才送。
@@ -140,6 +145,9 @@ message SelfStats {
   uint32 attack = 6;
   uint32 defense = 7;
   uint32 gold = 8;
+  // 內力：施放技能消耗。
+  uint32 mp = 9;
+  uint32 max_mp = 10;
 }
 
 enum ItemType {
@@ -296,4 +304,43 @@ enum QuestMarkerKind {
 message QuestMarker {
   uint32 entity_id = 1;
   QuestMarkerKind kind = 2;
+}
+
+// ===== 技能 =====
+
+enum SkillType {
+  SKILL_TYPE_UNSPECIFIED = 0;
+  // 單體攻擊：打目前的戰鬥對象。
+  SKILL_TYPE_STRIKE = 1;
+  // 範圍攻擊：打身邊所有敵人。
+  SKILL_TYPE_AOE = 2;
+  // 治療：自己或指定的玩家。
+  SKILL_TYPE_HEAL = 3;
+  // 增益：一段時間內提升攻擊或防禦。
+  SKILL_TYPE_BUFF = 4;
+}
+
+// 自己已學會的技能（技能列），以及附近訓練師能教的技能。
+// 學會、施放、升級、靠近或離開訓練師時整份重送。施放指令：`cast <id>`；學習：`learn <id>`。
+message SkillBook {
+  repeated SkillInfo known = 1;
+  repeated SkillInfo learnable = 2;
+  // 附近的訓練師名稱；空 = 附近沒有訓練師。
+  string trainer_name = 3;
+}
+
+message SkillInfo {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  SkillType type = 4;
+  uint32 mp_cost = 5;
+  uint32 cooldown_ms = 6;
+  // 送出當下還要等多久才能再施放。
+  uint32 remaining_ms = 7;
+  uint32 level = 8;
+  uint32 price = 9;
+  // learnable 專用：false 時 reason 說明為什麼還不能學。
+  bool can_learn = 10;
+  string reason = 11;
 }

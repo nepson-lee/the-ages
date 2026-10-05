@@ -9,7 +9,8 @@
   --error: #ff8a80;
   --hp: #5fbf5a;
   --npc-hp: #d9534f;
-  --exp: #6d8fd9;
+  --exp: #9a86d9;
+  --mp: #3f8fd6;
   --party: #c9a7ff;
   font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   color: var(--text);
@@ -184,6 +185,12 @@ body,
 .floater.hurt {
   color: var(--error);
 }
+.floater.heal {
+  color: #7dff9a;
+}
+.floater.skill {
+  font-size: 20px;
+}
 .floater.miss {
   color: var(--muted);
   font-size: 14px;
@@ -243,6 +250,9 @@ body,
 }
 .hud .bar.hp .fill {
   background: var(--hp);
+}
+.hud .bar.mp .fill {
+  background: var(--mp);
 }
 .hud .bar.exp .fill {
   background: var(--exp);
@@ -736,4 +746,172 @@ body,
   border: 0;
   background: none;
   padding: 0 4px;
+}
+
+/* ===== 技能 ===== */
+.hotbar {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 6px;
+}
+.hotbar.hidden {
+  display: none;
+}
+.hotbar button {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #4a5563;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+.hotbar button:hover {
+  border-color: var(--accent);
+}
+.hotbar button.no-mp .name {
+  color: var(--muted);
+}
+.hotbar .key {
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.hotbar .name {
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+}
+.hotbar .cost {
+  position: absolute;
+  right: 5px;
+  bottom: 2px;
+  font-size: 11px;
+  color: var(--mp);
+}
+/* 冷卻：由下往上的暗色遮罩，高度依剩餘時間縮短 */
+.hotbar .cooldown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.skill-panel {
+  position: absolute;
+  bottom: 96px;
+  right: 16px;
+  width: min(360px, calc(100% - 32px));
+  max-height: calc(100% - 120px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 14px;
+}
+.skill-panel.hidden {
+  display: none;
+}
+.skill-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.skill-panel h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.1em;
+}
+.skill-panel h3 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: #ffe8a3;
+}
+.skill-panel h3:empty {
+  display: none;
+}
+.skill-panel ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-panel li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.skill-panel li.empty {
+  color: var(--muted);
+}
+.skill-panel .name {
+  font-weight: bold;
+}
+.skill-panel .desc {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-line;
+}
+.skill-panel .actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.skill-panel .reason {
+  color: var(--muted);
+  font-size: 12px;
+}
+.skill-panel button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: rgba(217, 164, 65, 0.15);
+  color: var(--text);
+  cursor: pointer;
+}
+.skill-panel .close {
+  font-size: 16px;
+  border: 0;
+  background: none;
+}
+.skill-panel .hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* 窄螢幕：技能列移到指令列上方，避免重疊 */
+@media (max-width: 760px) {
+  .hotbar {
+    right: auto;
+    left: 16px;
+    bottom: 270px;
+  }
+  .hotbar button {
+    width: 52px;
+    height: 52px;
+  }
 }

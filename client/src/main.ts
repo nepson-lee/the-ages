@@ -7,6 +7,7 @@ import { Hud } from "./ui/hud";
 import { InventoryPanel } from "./ui/inventory";
 import { PartyPanel } from "./ui/party";
 import { QuestDialogPanel, QuestTracker } from "./ui/quests";
+import { Hotbar, SkillPanel } from "./ui/skills";
 import { ShopPanel } from "./ui/shop";
 import { showLogin } from "./ui/login";
 
@@ -41,10 +42,13 @@ function start(token: string): void {
   const party = new PartyPanel();
   const questDialog = new QuestDialogPanel((command) => connection?.command(command));
   const questTracker = new QuestTracker();
+  const hotbar = new Hotbar((command) => connection?.command(command));
+  const skillPanel = new SkillPanel((command) => connection?.command(command));
   const leftColumn = document.createElement("div");
   leftColumn.className = "left-column";
   leftColumn.append(hud.element, party.element, questTracker.element);
-  root.querySelector(".game")!.append(leftColumn, gameConsole.element, inventory.element, shop.element, questDialog.element);
+  root.querySelector(".game")!.append(leftColumn, gameConsole.element, inventory.element, shop.element, questDialog.element,
+    hotbar.element, skillPanel.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -71,6 +75,7 @@ function start(token: string): void {
         case "selfStats":
           hud.setStats(p.value);
           shop.setGold(p.value.gold);
+          hotbar.setMp(p.value.mp);
           break;
         case "inventory":
           inventory.update(p.value);
@@ -94,16 +99,23 @@ function start(token: string): void {
         case "questMarkers":
           view.setQuestMarkers(p.value);
           break;
+        case "skillBook":
+          hotbar.update(p.value);
+          skillPanel.update(p.value);
+          break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);
           break;
       }
     },
     onClose: (reason) => {
+      hotbar.dispose();
       activeConsole = null;
       activeInventory = null;
       activeShop = null;
       activeQuestDialog = null;
+      activeHotbar = null;
+      activeSkillPanel = null;
       view.dispose();
       storage()?.removeItem(TOKEN_KEY);
       showLogin(root, start, reason);
@@ -114,22 +126,31 @@ function start(token: string): void {
   activeInventory = inventory;
   activeShop = shop;
   activeQuestDialog = questDialog;
+  activeHotbar = hotbar;
+  activeSkillPanel = skillPanel;
 }
 
 let activeConsole: GameConsole | null = null;
 let activeInventory: InventoryPanel | null = null;
 let activeShop: ShopPanel | null = null;
 let activeQuestDialog: QuestDialogPanel | null = null;
+let activeHotbar: Hotbar | null = null;
+let activeSkillPanel: SkillPanel | null = null;
 // 指令列有焦點時按鍵不會傳到這裡（console.ts 會 stopPropagation）
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
     activeConsole?.focus();
   } else if (ev.key === "i" || ev.key === "I") {
     activeInventory?.toggle();
+  } else if (ev.key === "k" || ev.key === "K") {
+    activeSkillPanel?.toggle();
+  } else if (ev.key >= "1" && ev.key <= "6") {
+    activeHotbar?.cast(Number(ev.key) - 1);
   } else if (ev.key === "Escape") {
     activeInventory?.toggle(false);
     activeShop?.close();
     activeQuestDialog?.close();
+    activeSkillPanel?.toggle(false);
   }
 });
 

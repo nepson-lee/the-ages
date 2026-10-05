@@ -4,6 +4,8 @@ import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
 import com.theages.server.world.quest.QuestDefinition;
+import com.theages.server.world.skill.SkillDefinition;
+import com.theages.server.world.skill.SkillType;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -14,7 +16,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record WorldProperties(int tickRate, String startingZone, List<String> startingItems, int startingGold,
                              List<ItemTemplate> itemTemplates, List<ShopDefinition> shops,
                              List<NpcTemplate> npcTemplates, List<QuestDefinition> quests,
-                             List<ZoneDefinition> zones) {
+                             List<SkillDefinition> skills, List<ZoneDefinition> zones) {
 
     public WorldProperties {
         startingItems = startingItems == null ? List.of() : List.copyOf(startingItems);
@@ -22,6 +24,7 @@ public record WorldProperties(int tickRate, String startingZone, List<String> st
         shops = shops == null ? List.of() : List.copyOf(shops);
         npcTemplates = npcTemplates == null ? List.of() : List.copyOf(npcTemplates);
         quests = quests == null ? List.of() : List.copyOf(quests);
+        skills = skills == null ? List.of() : List.copyOf(skills);
     }
 
     public ZoneDefinition startingZoneDefinition() {
@@ -87,7 +90,21 @@ public record WorldProperties(int tickRate, String startingZone, List<String> st
                 require(items.containsKey(r.item()), where + " 的獎勵物品不存在：" + r.item());
             }
         }
-        return new WorldContent(npcs, items, shopsById, questsById);
+        Map<String, SkillDefinition> skillsById = index(skills, SkillDefinition::id);
+        for (SkillDefinition s : skills) {
+            String where = "技能 " + s.id();
+            require(npcs.containsKey(s.trainer()), where + " 的訓練師不存在：" + s.trainer());
+            require(npcs.get(s.trainer()).isPeaceful(), where + " 的訓練師 " + s.trainer() + " 必須是商人或 friendly");
+            require(s.cooldownSeconds() >= 0 && s.mpCost() >= 0 && s.price() >= 0, where + " 的冷卻、內力、學費不能是負數");
+            switch (s.type()) {
+                case STRIKE -> require(s.power() > 0, where + " 的 power（傷害倍率）必須大於 0");
+                case AOE -> require(s.power() > 0 && s.radius() > 0, where + " 必須設定 power 與 radius");
+                case HEAL -> require(s.power() > 0 || s.powerPerLevel() > 0, where + " 必須設定回復量 power／power-per-level");
+                case BUFF -> require(s.durationSeconds() > 0 && (s.attack() != 0 || s.defense() != 0),
+                    where + " 必須設定 duration-seconds 與 attack／defense");
+            }
+        }
+        return new WorldContent(npcs, items, shopsById, questsById, skillsById);
     }
 
     private static <T> Map<String, T> index(List<T> list, Function<T, String> id) {

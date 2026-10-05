@@ -13,6 +13,7 @@ import com.theages.protocol.v1.QuestObjective;
 import com.theages.protocol.v1.QuestOffer;
 import com.theages.protocol.v1.QuestOfferStatus;
 import com.theages.protocol.v1.SellQuote;
+import com.theages.protocol.v1.SkillInfo;
 import com.theages.protocol.v1.ServerMessage;
 import com.theages.protocol.v1.ShopClosed;
 import com.theages.protocol.v1.ShopOffer;
@@ -31,6 +32,8 @@ import com.theages.server.world.item.ShopDefinition;
 import com.theages.server.world.party.PartyService;
 import com.theages.server.world.quest.QuestDefinition;
 import com.theages.server.world.quest.QuestLog;
+import com.theages.server.world.skill.SkillBook;
+import com.theages.server.world.skill.SkillDefinition;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -246,6 +249,7 @@ public final class Zone {
                 p.quests().markDirty(); // 收集目標的進度看背包
             }
             syncQuests(p, tick % tickRate == 0);
+            updateSkills(p);
             if (inventoryChanged) {
                 p.connection().send(inventoryMessage(p.inventory()));
                 if (p.openShop != null) {
@@ -296,8 +300,10 @@ public final class Zone {
                 id -> log.warn("角色 {} 身上的物品 {} 已不存在於內容檔，略過", join.characterId(), id));
             QuestLog quests = QuestLog.fromRecords(join.quests(), content.quests(),
                 id -> log.warn("角色 {} 的任務 {} 已不存在於內容檔，略過", join.characterId(), id));
+            SkillBook skills = SkillBook.fromIds(join.skills(), content.skills(),
+                id -> log.warn("角色 {} 的技能 {} 已不存在於內容檔，略過", join.characterId(), id));
             player = new PlayerEntity(entityIds.getAsInt(), join.characterId(), join.name(), join.connection(),
-                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), join.gold(), inventory, quests);
+                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), join.gold(), join.mp(), inventory, quests, skills);
             byCharacter.put(player.characterId(), player);
             entities.put(player.id(), player);
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 走了過來。", player);
@@ -401,11 +407,11 @@ public final class Zone {
 
         CharacterSnapshot s = p.snapshot(target.definition().id());
         CharacterSnapshot arrived = new CharacterSnapshot(s.characterId(), s.zoneId(), exit.toX(), exit.toZ(),
-            s.level(), s.exp(), s.hp(), s.gold(), s.items(), s.quests());
+            s.level(), s.exp(), s.hp(), s.gold(), s.mp(), s.items(), s.quests(), s.skills());
         store.saveAsync(arrived); // 換區當下就存檔：伺服器若在途中當掉，玩家會出現在目的地
         // 先排入 Join 再切換路由：之後的訊息都會排在 Join 後面
         target.enqueue(new ZoneEvent.Join(p.connection(), s.characterId(), p.name(), exit.toX(), exit.toZ(),
-            s.level(), s.exp(), s.hp(), s.gold(), s.items(), s.quests()));
+            s.level(), s.exp(), s.hp(), s.gold(), s.mp(), s.items(), s.quests(), s.skills()));
         p.connection().attachZone(target);
     }
 
@@ -414,6 +420,9 @@ public final class Zone {
     }
 
     private void regenerate() {
+        for (PlayerEntity p : byConnection.values()) {
+            p.setMp(p.mp() + Math.max(1, p.maxMp() / 20));
+        }
         long quietSince = tick - (long) REGEN_DELAY_SECONDS * tickRate;
         for (Entity e : entities.values()) {
             if (e.hp() < e.maxHp() && e.combatTarget() == null && e.lastCombatTick < quietSince) {
@@ -606,6 +615,239 @@ public final class Zone {
         entities.put(npc.id(), npc);
     }
 
+    // ===== 技能 =====
+
+    /**
+     * 施放技能。explicitTarget 為指令指定的對象（可為 null）：
+     * strike 預設打目前的戰鬥對象，heal 預設治療自己。
+     */
+    void cast(PlayerEntity p, SkillDefinition s, Entity explicitTarget) {
+        long wait = p.skills().ticksUntilReady(s, tick);
+        if (wait > 0) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM,
+                "「" + s.name() + "」還要 " + (wait + tickRate - 1) / tickRate + " 秒才能再使用。");
+            return;
+        }
+        if (p.mp() < s.mpCost()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你的內力不夠（「" + s.name() + "」需要 " + s.mpCost() + " 點）。");
+            return;
+        }
+        boolean used = switch (s.type()) {
+            case STRIKE -> castStrike(p, s, explicitTarget);
+            case AOE -> castAoe(p, s);
+            case HEAL -> castHeal(p, s, explicitTarget);
+            case BUFF -> castBuff(p, s);
+        };
+        if (used) {
+            p.setMp(p.mp() - s.mpCost());
+            p.skills().startCooldown(s, tick, tickRate);
+        }
+    }
+
+    private boolean isHostile(Entity e) {
+        return e instanceof NpcEntity n && !n.template().isPeaceful() && !n.isDead() && contains(n);
+    }
+
+    private boolean castStrike(PlayerEntity p, SkillDefinition s, Entity explicitTarget) {
+        Entity target = explicitTarget != null ? explicitTarget : p.combatTarget();
+        if (target == null || !isHostile(target)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你沒有可以攻擊的目標。（先點擊敵人或用 kill 指令）");
+            return false;
+        }
+        if (p.distanceTo(target) > Combat.MELEE_RANGE) {
+            startAttack(p, target); // 先走過去，到了再按一次
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "距離太遠了，你朝" + target.name() + "衝了過去。");
+            return false;
+        }
+        p.pendingPickup = null;
+        p.pendingShop = null;
+        p.pendingExit = null;
+        p.setCombatTarget(target);
+        combat.skillHit(p, target, s.power(), s.name(), tick);
+        return true;
+    }
+
+    private boolean castAoe(PlayerEntity p, SkillDefinition s) {
+        List<Entity> targets = entities.values().stream()
+            .filter(e -> isHostile(e) && p.distanceTo(e) <= s.radius())
+            .toList(); // 複製一份：攻擊可能打死目標並從區域移除
+        if (targets.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "身邊沒有敵人。");
+            return false;
+        }
+        if (p.combatTarget() == null) {
+            p.setCombatTarget(targets.get(0));
+        }
+        for (Entity target : targets) {
+            if (isHostile(target)) {
+                combat.skillHit(p, target, s.power(), s.name(), tick);
+            }
+        }
+        return true;
+    }
+
+    private boolean castHeal(PlayerEntity p, SkillDefinition s, Entity explicitTarget) {
+        Entity target = explicitTarget != null ? explicitTarget : p;
+        if (!(target instanceof PlayerEntity healed) || !byConnection.containsValue(healed)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "只能治療玩家。");
+            return false;
+        }
+        if (healed != p && p.distanceTo(healed) > s.radius()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, healed.name() + "離你太遠了。");
+            return false;
+        }
+        if (healed.hp() >= healed.maxHp()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, (healed == p ? "你" : healed.name()) + "的傷勢不需要治療。");
+            return false;
+        }
+        int before = healed.hp();
+        healed.heal(s.healAmount(p.level()));
+        int amount = healed.hp() - before;
+        broadcastCombat(CombatEvent.newBuilder()
+            .setAttackerId(p.id())
+            .setTargetId(healed.id())
+            .setDamage(amount)
+            .setHeal(true)
+            .setSkillName(s.name())
+            .build());
+        if (healed == p) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你運起「" + s.name() + "」，回復了 " + amount + " 點生命。");
+        } else {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你對" + healed.name() + "使出「" + s.name() + "」，回復了 " + amount + " 點生命。");
+            sendText(healed, TextChannel.TEXT_CHANNEL_SYSTEM, p.name() + "對你使出「" + s.name() + "」，你回復了 " + amount + " 點生命。");
+        }
+        return true;
+    }
+
+    private boolean castBuff(PlayerEntity p, SkillDefinition s) {
+        p.skills().applyBuff(s, tick, tickRate);
+        p.refreshStats();
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你運起「" + s.name() + "」，"
+            + (s.attack() != 0 ? "攻擊提升了 " + s.attack() + " 點" : "")
+            + (s.attack() != 0 && s.defense() != 0 ? "、" : "")
+            + (s.defense() != 0 ? "防禦提升了 " + s.defense() + " 點" : "")
+            + "！（" + s.durationSeconds() + " 秒）");
+        return true;
+    }
+
+    void learn(PlayerEntity p, String query) {
+        for (NpcEntity trainer : peacefulNear(p)) {
+            for (SkillDefinition s : content.skillsTaughtBy(trainer.template())) {
+                if (!s.matches(query)) {
+                    continue;
+                }
+                Optional<String> why = whyCannotLearn(p, s);
+                if (why.isPresent()) {
+                    sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, why.get());
+                    return;
+                }
+                p.spendGold(s.price());
+                p.skills().learn(s);
+                sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你向" + trainer.name() + "學會了「" + s.name() + "」！"
+                    + (s.price() > 0 ? "（花了 " + s.price() + " 枚銅錢）" : "") + " 輸入 cast " + s.id() + " 施放。");
+                return;
+            }
+        }
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "附近沒有人教「" + query + "」。");
+    }
+
+    private Optional<String> whyCannotLearn(PlayerEntity p, SkillDefinition s) {
+        if (p.skills().knows(s.id())) {
+            return Optional.of("你已經會「" + s.name() + "」了。");
+        }
+        if (p.level() < s.level()) {
+            return Optional.of("「" + s.name() + "」需要 " + s.level() + " 級才能學。");
+        }
+        if (p.gold() < s.price()) {
+            return Optional.of("學「" + s.name() + "」要 " + s.price() + " 枚銅錢，你的錢不夠。");
+        }
+        return Optional.empty();
+    }
+
+    /** 給 skills 指令列出技能。 */
+    String describeSkills(PlayerEntity p) {
+        StringBuilder sb = new StringBuilder();
+        if (p.skills().known().isEmpty()) {
+            sb.append("你還沒學會任何技能。（找村長或獵人老李學習：talk <名字>）");
+        } else {
+            sb.append("你會的技能（內力 ").append(p.mp()).append("/").append(p.maxMp()).append("）：");
+            for (SkillDefinition s : p.skills().known()) {
+                long wait = p.skills().ticksUntilReady(s, tick);
+                sb.append("\n  ").append(s.name()).append("(").append(s.id()).append(") ").append(s.summary())
+                    .append(wait > 0 ? " — 冷卻中" : "");
+            }
+        }
+        for (SkillBook.Buff buff : p.skills().buffs()) {
+            sb.append("\n  生效中：").append(buff.skill().name()).append("（還剩 ")
+                .append((buff.expiresAtTick() - tick + tickRate - 1) / tickRate).append(" 秒）");
+        }
+        if (p.openTrainer != null) {
+            List<SkillDefinition> learnable = content.skillsTaughtBy(p.openTrainer.template()).stream()
+                .filter(s -> !p.skills().knows(s.id())).toList();
+            if (!learnable.isEmpty()) {
+                sb.append("\n").append(p.openTrainer.name()).append("可以教你：");
+                for (SkillDefinition s : learnable) {
+                    sb.append("\n  ").append(s.name()).append("(").append(s.id()).append(") Lv").append(s.level())
+                        .append(" 學費 ").append(s.price()).append(" — ").append(s.summary());
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private ServerMessage skillBookMessage(PlayerEntity p) {
+        com.theages.protocol.v1.SkillBook.Builder book = com.theages.protocol.v1.SkillBook.newBuilder();
+        for (SkillDefinition s : p.skills().known()) {
+            book.addKnown(skillInfo(s).setRemainingMs((int) (p.skills().ticksUntilReady(s, tick) * 1000 / tickRate)));
+        }
+        if (p.openTrainer != null) {
+            book.setTrainerName(p.openTrainer.name());
+            for (SkillDefinition s : content.skillsTaughtBy(p.openTrainer.template())) {
+                if (p.skills().knows(s.id())) {
+                    continue;
+                }
+                Optional<String> why = whyCannotLearn(p, s);
+                book.addLearnable(skillInfo(s).setCanLearn(why.isEmpty()).setReason(why.orElse("")));
+            }
+        }
+        return ServerMessage.newBuilder().setSkillBook(book).build();
+    }
+
+    private static SkillInfo.Builder skillInfo(SkillDefinition s) {
+        return SkillInfo.newBuilder()
+            .setId(s.id())
+            .setName(s.name())
+            .setDescription((s.description() == null ? "" : s.description() + "\n") + s.summary())
+            .setType(switch (s.type()) {
+                case STRIKE -> com.theages.protocol.v1.SkillType.SKILL_TYPE_STRIKE;
+                case AOE -> com.theages.protocol.v1.SkillType.SKILL_TYPE_AOE;
+                case HEAL -> com.theages.protocol.v1.SkillType.SKILL_TYPE_HEAL;
+                case BUFF -> com.theages.protocol.v1.SkillType.SKILL_TYPE_BUFF;
+            })
+            .setMpCost(s.mpCost())
+            .setCooldownMs((int) Math.round(s.cooldownSeconds() * 1000))
+            .setLevel(s.level())
+            .setPrice(s.price());
+    }
+
+    /** 每 tick：到期的增益失效、技能列變動時重送。 */
+    private void updateSkills(PlayerEntity p) {
+        List<SkillBook.Buff> expired = p.skills().expireBuffs(tick);
+        for (SkillBook.Buff buff : expired) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "「" + buff.skill().name() + "」的效果消失了。");
+        }
+        if (!expired.isEmpty()) {
+            p.refreshStats();
+        }
+        if (p.openTrainer != null && (!contains(p.openTrainer) || p.distanceTo(p.openTrainer) > TRADE_RANGE + 1)) {
+            p.openTrainer = null;
+            p.skills().markDirty();
+        }
+        if (p.skills().consumeDirty()) {
+            p.connection().send(skillBookMessage(p));
+        }
+    }
+
     // ===== 對話與任務 =====
 
     /** 找 NPC 說話；太遠就先走過去。商人會順便打開商店。 */
@@ -622,6 +864,11 @@ public final class Zone {
                 String greeting = npc.template().greeting();
                 sendText(p, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "說：「"
                     + (greeting == null ? "你好啊，年輕人。" : greeting) + "」");
+            }
+            if (!content.skillsTaughtBy(npc.template()).isEmpty()) {
+                p.openTrainer = npc;
+                p.skills().markDirty();
+                sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, npc.name() + "可以教你技能。（按 K 打開技能面板，或輸入 skills）");
             }
             if (npc.template().isMerchant()) {
                 openShop(p, npc);
@@ -1224,14 +1471,23 @@ public final class Zone {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, t.name() + "不能使用。");
         } else if (tick < p.nextUseTick) {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你還在吞上一口，慢慢來。");
-        } else if (p.hp() >= p.maxHp()) {
+        } else if (!(t.heal() > 0 && p.hp() < p.maxHp()) && !(t.mana() > 0 && p.mp() < p.maxMp())) {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你現在精神飽滿，不需要" + t.name() + "。");
         } else {
-            int before = p.hp();
+            int hpBefore = p.hp();
+            int mpBefore = p.mp();
             p.heal(t.heal());
+            p.setMp(p.mp() + t.mana());
             p.inventory().remove(entry, 1);
             p.nextUseTick = tick + (long) USE_COOLDOWN_SECONDS * tickRate;
-            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你吃下了" + t.name() + "，回復了 " + (p.hp() - before) + " 點生命。");
+            List<String> restored = new ArrayList<>();
+            if (p.hp() > hpBefore) {
+                restored.add((p.hp() - hpBefore) + " 點生命");
+            }
+            if (p.mp() > mpBefore) {
+                restored.add((p.mp() - mpBefore) + " 點內力");
+            }
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你吃下了" + t.name() + "，回復了 " + String.join("、", restored) + "。");
         }
     }
 

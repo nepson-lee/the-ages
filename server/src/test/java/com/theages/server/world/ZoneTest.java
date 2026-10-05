@@ -15,6 +15,8 @@ import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
 import com.theages.server.world.party.PartyService;
 import com.theages.server.world.quest.QuestDefinition;
+import com.theages.server.world.skill.SkillDefinition;
+import com.theages.server.world.skill.SkillType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,11 +43,11 @@ class ZoneTest {
         List.of(new LootEntry("dagger", 1.0, null, null), new LootEntry("meat", 1.0, 2, 2)), 0, 0, null, false, null);
 
     private static final ItemTemplate DAGGER = new ItemTemplate("dagger", "匕首", List.of("dagger"), "很利。",
-        ItemType.EQUIPMENT, EquipSlot.WEAPON, 6, 0, 0, 0, 60, null);
+        ItemType.EQUIPMENT, EquipSlot.WEAPON, 6, 0, 0, 0, 0, 60, null);
     private static final ItemTemplate VEST = new ItemTemplate("vest", "背心", List.of("vest"), "很暖。",
-        ItemType.EQUIPMENT, EquipSlot.BODY, 0, 4, 10, 0, 80, null);
+        ItemType.EQUIPMENT, EquipSlot.BODY, 0, 4, 10, 0, 0, 80, null);
     private static final ItemTemplate MEAT = new ItemTemplate("meat", "兔肉", List.of("meat"), "好吃。",
-        ItemType.CONSUMABLE, null, 0, 0, 0, 15, 4, null);
+        ItemType.CONSUMABLE, null, 0, 0, 0, 15, 0, 4, null);
 
     /** 收購消耗品（半價）、販賣兔肉（特價 7）與匕首的商店。 */
     private static final ShopDefinition STORE = new ShopDefinition("store", "測試商店", 0.5,
@@ -64,6 +66,17 @@ class ZoneTest {
     /** 送信給商店老闆（store 的 shopkeeper），要先完成雜事。 */
     private static final QuestDefinition LETTER = new QuestDefinition("letter", "送信", "elder", "shopkeeper", "", 1,
         List.of("chores"), List.of(), new QuestDefinition.Rewards(10, 0, List.of()), false, null, "收到了。");
+
+    private static final SkillDefinition BASH = new SkillDefinition("bash", "重擊", List.of("b"), "", SkillType.STRIKE,
+        1, "elder", 10, 8, 4, 1.8, 0, 0f, 0, 0, 0);
+    private static final SkillDefinition SPIN = new SkillDefinition("spin", "旋風斬", List.of(), "", SkillType.AOE,
+        1, "elder", 0, 10, 10, 0.9, 0, 3.5f, 0, 0, 0);
+    private static final SkillDefinition MEND = new SkillDefinition("mend", "療傷", List.of(), "", SkillType.HEAL,
+        1, "elder", 0, 5, 8, 20, 4, 8f, 0, 0, 0);
+    private static final SkillDefinition IRON = new SkillDefinition("iron", "鐵布衫", List.of(), "", SkillType.BUFF,
+        3, "elder", 50, 5, 30, 0, 0, 0f, 0, 6, 20);
+    private static final ItemTemplate PILL = new ItemTemplate("pill", "回氣丹", List.of("pill"), "", ItemType.CONSUMABLE,
+        null, 0, 0, 0, 0, 40, 20, null);
 
     private final List<CharacterSnapshot> saves = new ArrayList<>();
 
@@ -93,9 +106,10 @@ class ZoneTest {
         WorldContent content = new WorldContent(
             Map.of("dummy", DUMMY, "killer", KILLER, "tank", TANK, "pinata", PINATA, "shopkeeper", SHOPKEEPER,
                 "elder", ELDER),
-            Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT),
+            Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT, "pill", PILL),
             Map.of("store", STORE),
-            Map.of("chores", CHORES, "letter", LETTER));
+            Map.of("chores", CHORES, "letter", LETTER),
+            Map.of("bash", BASH, "spin", SPIN, "mend", MEND, "iron", IRON));
         Zone zone = new Zone(def, content, TICK_RATE, ids::getAndIncrement, ALWAYS_HIT,
             new ZoneServices(saves::add, parties, zones::get));
         zones.put(def.id(), zone);
@@ -103,7 +117,7 @@ class ZoneTest {
     }
 
     private static ZoneEvent.Join join(PlayerConnection c, long characterId, String name, float x, float z) {
-        return new ZoneEvent.Join(c, characterId, name, x, z, 1, 0, 0, 0, List.of(), List.of());
+        return new ZoneEvent.Join(c, characterId, name, x, z, 1, 0, 0, 0, -1, List.of(), List.of(), List.of());
     }
 
     private static void run(Zone zone, int ticks) {
@@ -196,14 +210,14 @@ class ZoneTest {
     void leavePersistsCharacterProgress() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 42, "alice", 0, 0, 3, 77, 0, 0, // hp 0 = 滿血、沒有錢
-            List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 42, "alice", 0, 0, 3, 77, 0, 0, -1, // hp 0 = 滿血、沒有錢
+            List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false)), List.of(), List.of()));
         zone.tick();
         zone.enqueue(new ZoneEvent.Leave(alice));
         zone.tick();
 
-        assertThat(saves).containsExactly(new CharacterSnapshot(42, "test", 0, 0, 3, 77, PlayerEntity.maxHpFor(3), 0,
-            List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false)), List.of()));
+        assertThat(saves).containsExactly(new CharacterSnapshot(42, "test", 0, 0, 3, 77, PlayerEntity.maxHpFor(3), 0, PlayerEntity.maxMpFor(3),
+            List.of(new ItemRecord("dagger", 1, true), new ItemRecord("meat", 4, false)), List.of(), List.of()));
     }
 
     // ===== 戰鬥 =====
@@ -254,7 +268,7 @@ class ZoneTest {
     void aggressiveNpcKillsPlayerWhoRespawnsWithExpPenalty() {
         Zone zone = zone(new ZoneDefinition.NpcSpawn("killer", 22, 0, 1));
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 20, 0, 1, 50, 0, 0, List.of(), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 20, 0, 1, 50, 0, 0, -1, List.of(), List.of(), List.of()));
         run(zone, 2 * TICK_RATE);
 
         PlayerEntity p = entity(zone, PlayerEntity.class);
@@ -377,7 +391,7 @@ class ZoneTest {
     void getWalksToFarItemThenPicksItUp() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, List.of(new ItemRecord("meat", 1, false)), List.of(), List.of()));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop meat"));
         zone.tick();
         assertThat(zone.groundItems()).hasSize(1);
@@ -396,8 +410,8 @@ class ZoneTest {
     void wearingEquipmentChangesStatsAndSwaps() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0,
-            List.of(new ItemRecord("dagger", 1, false), new ItemRecord("vest", 1, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1,
+            List.of(new ItemRecord("dagger", 1, false), new ItemRecord("vest", 1, false)), List.of(), List.of()));
         zone.tick();
         PlayerEntity p = entity(zone, PlayerEntity.class);
         int baseAttack = p.attack();
@@ -421,7 +435,7 @@ class ZoneTest {
     void cannotDropEquippedItem() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("dagger", 1, true)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, List.of(new ItemRecord("dagger", 1, true)), List.of(), List.of()));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop dagger"));
         zone.tick();
 
@@ -433,7 +447,7 @@ class ZoneTest {
     void eatingHealsWithCooldownAndConsumesItem() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 10, 0, List.of(new ItemRecord("meat", 3, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 10, 0, -1, List.of(new ItemRecord("meat", 3, false)), List.of(), List.of()));
         zone.tick();
         PlayerEntity p = entity(zone, PlayerEntity.class);
         int before = p.hp();
@@ -451,7 +465,7 @@ class ZoneTest {
     void eatingAtFullHealthIsRefused() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, List.of(new ItemRecord("meat", 1, false)), List.of(), List.of()));
         zone.enqueue(new ZoneEvent.CommandText(alice, "eat meat"));
         zone.tick();
 
@@ -462,7 +476,7 @@ class ZoneTest {
     void groundItemsDespawn() {
         Zone zone = zone();
         FakeConnection alice = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, List.of(new ItemRecord("meat", 1, false)), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, List.of(new ItemRecord("meat", 1, false)), List.of(), List.of()));
         zone.enqueue(new ZoneEvent.CommandText(alice, "drop meat"));
         zone.tick();
         int id = zone.groundItems().iterator().next().id();
@@ -491,7 +505,7 @@ class ZoneTest {
     // ===== 金錢與商店 =====
 
     private static ZoneEvent.Join rich(PlayerConnection c, float x, int gold, ItemRecord... items) {
-        return new ZoneEvent.Join(c, 1, "alice", x, 0, 1, 0, 0, gold, List.of(items), List.of());
+        return new ZoneEvent.Join(c, 1, "alice", x, 0, 1, 0, 0, gold, -1, List.of(items), List.of(), List.of());
     }
 
     @Test
@@ -639,7 +653,7 @@ class ZoneTest {
     void walkingThroughExitMovesPlayerToTargetZoneWithState() {
         Zone[] z = village();
         FakeConnection alice = new FakeConnection();
-        z[0].enqueue(new ZoneEvent.Join(alice, 7, "alice", 0, -10, 2, 33, 40, 55, List.of(new ItemRecord("meat", 3, false)), List.of()));
+        z[0].enqueue(new ZoneEvent.Join(alice, 7, "alice", 0, -10, 2, 33, 40, 55, -1, List.of(new ItemRecord("meat", 3, false)), List.of(), List.of()));
         z[0].enqueue(new ZoneEvent.CommandText(alice, "n")); // 方向詞直接當指令
         run(z[0], 3 * TICK_RATE);
 
@@ -724,8 +738,8 @@ class ZoneTest {
         Zone zone = zone(new ZoneDefinition.NpcSpawn("dummy", 1, 0, 1));
         FakeConnection alice = new FakeConnection();
         FakeConnection bob = new FakeConnection();
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, aliceLevel, 0, 0, 0, List.of(), List.of()));
-        zone.enqueue(new ZoneEvent.Join(bob, 2, "bob", 1 - bobDistance, 0.5f, bobLevel, 0, 0, 0, List.of(), List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, aliceLevel, 0, 0, 0, -1, List.of(), List.of(), List.of()));
+        zone.enqueue(new ZoneEvent.Join(bob, 2, "bob", 1 - bobDistance, 0.5f, bobLevel, 0, 0, 0, -1, List.of(), List.of(), List.of()));
         zone.tick();
         parties.invite(1, "bob");
         parties.accept(2);
@@ -853,7 +867,7 @@ class ZoneTest {
             new ZoneDefinition.NpcSpawn("shopkeeper", -2, 0, 1));
         FakeConnection alice = new FakeConnection();
         List<ItemRecord> items = meatCount == 0 ? List.of() : List.of(new ItemRecord("meat", meatCount, false));
-        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, items, List.of()));
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, items, List.of(), List.of()));
         zone.tick();
         return new Object[] {zone, alice};
     }
@@ -1023,6 +1037,178 @@ class ZoneTest {
         assertThat(saves).anyMatch(snap -> snap.quests().equals(List.of(new com.theages.server.world.quest.QuestRecord("chores", false, "1,0"))));
         PlayerEntity arrived = entity(z[1], PlayerEntity.class);
         assertThat(arrived.quests().active("chores")).isPresent();
+    }
+
+    // ===== 技能 =====
+
+    /** 老龜（1000 HP、0 防禦）在 (1,0)，alice（Lv level、gold 銅錢）在原點，已學會 skills。 */
+    private Object[] skillZone(int level, int gold, SkillDefinition... skills) {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("tank", 1, 0, 1), new ZoneDefinition.NpcSpawn("elder", -2, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, level, 0, 0, gold, -1, List.of(), List.of(),
+            java.util.Arrays.stream(skills).map(SkillDefinition::id).toList()));
+        zone.tick();
+        return new Object[] {zone, alice, entity(zone, PlayerEntity.class), npcNamed(zone, "tank")};
+    }
+
+    @Test
+    void learningFromTrainerCostsGoldAndRequiresLevel() {
+        Object[] r = skillZone(1, 30);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "learn 鐵布衫"));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "learn bash"));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "learn bash"));
+        zone.tick();
+
+        assertThat(alice.texts()).contains("「鐵布衫」需要 3 級才能學。", "你已經會「重擊」了。");
+        assertThat(p.skills().knows("bash")).isTrue();
+        assertThat(p.gold()).isEqualTo(20);
+        assertThat(alice.sent).anyMatch(m -> m.hasSkillBook() && m.getSkillBook().getKnownCount() == 1);
+    }
+
+    @Test
+    void talkingToTrainerListsLearnableSkills() {
+        Object[] r = skillZone(1, 0);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        zone.enqueue(new ZoneEvent.CommandText(alice, "talk elder"));
+        zone.tick();
+
+        assertThat(alice.sent).anyMatch(m -> m.hasSkillBook() && m.getSkillBook().getTrainerName().equals("村長")
+            && m.getSkillBook().getLearnableList().stream().anyMatch(s -> s.getId().equals("bash") && !s.getCanLearn()
+                && s.getReason().contains("錢不夠")));
+    }
+
+    @Test
+    void strikeHitsHarderAndUsesMpAndCooldown() {
+        Object[] r = skillZone(1, 0, BASH);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        NpcEntity tank = (NpcEntity) r[3];
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast bash tank".replace("tank", "turtle")));
+        zone.tick();
+
+        // 一般傷害 round(8 × 0.7) = 6 → 技能 round(6 × 1.8) = 11；同一 tick 的自動攻擊還會再打 6
+        assertThat(alice.texts()).contains("你使出「重擊」，對老龜造成 11 點傷害！");
+        assertThat(p.mp()).isEqualTo(p.maxMp() - 8);
+        assertThat(p.combatTarget()).isSameAs(tank);
+        assertThat(alice.sent).anyMatch(m -> m.hasCombat() && m.getCombat().getSkillName().equals("重擊"));
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "c b"));
+        zone.tick();
+        assertThat(alice.texts()).anyMatch(t -> t.startsWith("「重擊」還要"));
+    }
+
+    @Test
+    void strikeWithoutTargetIsRefused() {
+        Object[] r = skillZone(1, 0, BASH);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast bash"));
+        zone.tick();
+
+        assertThat(alice.texts()).anyMatch(t -> t.startsWith("你沒有可以攻擊的目標"));
+        assertThat(p.mp()).as("沒有施放就不扣內力").isEqualTo(p.maxMp());
+    }
+
+    @Test
+    void notEnoughMpIsRefused() {
+        Object[] r = skillZone(1, 0, BASH);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        p.setMp(3);
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast bash turtle"));
+        zone.tick();
+
+        assertThat(alice.texts()).contains("你的內力不夠（「重擊」需要 8 點）。");
+    }
+
+    @Test
+    void aoeHitsEveryHostileInRangeButNotPeacefulNpcs() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("tank", 1, 0, 1), new ZoneDefinition.NpcSpawn("tank", -1, 0, 1),
+            new ZoneDefinition.NpcSpawn("tank", 10, 0, 1), new ZoneDefinition.NpcSpawn("elder", 0, 1, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, 1, 0, 0, 0, -1, List.of(), List.of(), List.of("spin")));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast 旋風斬"));
+        zone.tick();
+
+        List<Integer> damaged = zone.npcs().stream().filter(n -> n.hp() < n.maxHp()).map(n -> (int) n.x()).toList();
+        assertThat(damaged).containsExactlyInAnyOrder(1, -1);
+        assertThat(npcNamed(zone, "elder").hp()).isEqualTo(npcNamed(zone, "elder").maxHp());
+    }
+
+    @Test
+    void healRestoresHpOfSelfOrNearbyPlayer() {
+        Object[] r = skillZone(1, 0, MEND);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        FakeConnection bob = new FakeConnection();
+        zone.enqueue(new ZoneEvent.Join(bob, 2, "bob", 3, 0, 1, 0, 10, 0, -1, List.of(), List.of(), List.of()));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast mend"));
+        zone.tick();
+        assertThat(alice.texts()).contains("你的傷勢不需要治療。");
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast mend bob"));
+        zone.tick();
+        // 20 + 4 × Lv1 = 24
+        assertThat(player(zone, "bob").hp()).isEqualTo(10 + 24);
+        assertThat(bob.texts()).contains("alice對你使出「療傷」，你回復了 24 點生命。");
+        assertThat(bob.sent).anyMatch(m -> m.hasCombat() && m.getCombat().getHeal() && m.getCombat().getDamage() == 24);
+        assertThat(p.mp()).isEqualTo(p.maxMp() - 5);
+    }
+
+    @Test
+    void buffRaisesDefenseUntilItExpires() {
+        Object[] r = skillZone(3, 0, IRON);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        int base = p.defense();
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "cast iron"));
+        zone.tick();
+        assertThat(p.defense()).isEqualTo(base + 6);
+
+        run(zone, IRON.durationSeconds() * TICK_RATE);
+        assertThat(p.defense()).isEqualTo(base);
+        assertThat(alice.texts()).contains("「鐵布衫」的效果消失了。");
+    }
+
+    @Test
+    void mpRegeneratesAndPillsRestoreIt() {
+        Object[] r = skillZone(1, 0);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        PlayerEntity p = (PlayerEntity) r[2];
+        p.setMp(0);
+        p.inventory().add(PILL, 1);
+
+        zone.enqueue(new ZoneEvent.CommandText(alice, "eat pill"));
+        run(zone, 3 * TICK_RATE + 1); // 中間會經過一次 3 秒的回復
+        assertThat(p.mp()).isEqualTo(Math.min(p.maxMp(), 40 + Math.max(1, p.maxMp() / 20)));
+        assertThat(alice.texts()).contains("你吃下了回氣丹，回復了 30 點內力。".replace("30", String.valueOf(Math.min(40, p.maxMp()))));
+    }
+
+    @Test
+    void skillsAndMpAreSavedAndTravel() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        z[0].enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, -18, 1, 0, 0, 0, 7, List.of(), List.of(), List.of("bash")));
+        z[0].enqueue(new ZoneEvent.CommandText(alice, "north"));
+        z[0].tick();
+        z[1].tick();
+
+        assertThat(saves).anyMatch(snap -> snap.skills().equals(List.of("bash")) && snap.mp() == 7);
+        PlayerEntity arrived = entity(z[1], PlayerEntity.class);
+        assertThat(arrived.skills().knows("bash")).isTrue();
+        assertThat(arrived.mp()).as("抵達後第一個 tick 正好回復一次").isEqualTo(7 + Math.max(1, arrived.maxMp() / 20));
     }
 
     // ===== 工具 =====

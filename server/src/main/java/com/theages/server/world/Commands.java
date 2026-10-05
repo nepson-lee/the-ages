@@ -46,7 +46,10 @@ final class Commands {
         Map.entry("team", "party"),
         Map.entry("q", "quest"),
         Map.entry("quests", "quest"),
-        Map.entry("ask", "talk"));
+        Map.entry("ask", "talk"),
+        Map.entry("sk", "skills"),
+        Map.entry("c", "cast"),
+        Map.entry("train", "learn"));
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -215,6 +218,42 @@ final class Commands {
                 default -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
                     "用法：quest、quest accept <任務>、quest complete <任務>、quest abandon <任務>");
             }
+        });
+
+        register("skills", "查看技能與內力（sk）；在訓練師旁邊也會列出可以學的技能", (zone, actor, args) ->
+            zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, zone.describeSkills(actor)));
+
+        register("learn", "向訓練師學技能：learn <技能>", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想學什麼？（skills 查看可以學的技能）");
+            } else {
+                zone.learn(actor, args);
+            }
+        });
+
+        register("cast", "施放技能：cast <技能> [目標]（c），也可以按技能列或數字鍵 1～6", (zone, actor, args) -> {
+            String[] parts = args.split("\\s+", 2);
+            if (parts[0].isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你要使出什麼技能？");
+                return;
+            }
+            Optional<com.theages.server.world.skill.SkillDefinition> skill = actor.skills().find(parts[0]);
+            if (skill.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你還不會「" + parts[0] + "」。");
+                return;
+            }
+            Entity target = null;
+            if (parts.length > 1) {
+                String query = parts[1].strip();
+                target = skill.get().type() == com.theages.server.world.skill.SkillType.HEAL
+                    ? zone.players().stream().filter(p -> p.name().equalsIgnoreCase(query)).findFirst().orElse(null)
+                    : findNpc(zone, actor, query).orElse(null);
+                if (target == null) {
+                    zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有「" + query + "」。");
+                    return;
+                }
+            }
+            zone.cast(actor, skill.get(), target);
         });
 
         register("go", "前往其他區域：go <出口>；也可以直接打方向，例如 north、n", (zone, actor, args) -> {

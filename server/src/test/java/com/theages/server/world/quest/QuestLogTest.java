@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 
 class QuestLogTest {
 
-    static final ItemTemplate FUR = new ItemTemplate("fur", "兔毛", List.of(), "", ItemType.MISC, null, 0, 0, 0, 0, 1, null);
+    static final ItemTemplate FUR = new ItemTemplate("fur", "兔毛", List.of(), "", ItemType.MISC, null, 0, 0, 0, 0, 0, 1, null);
 
     static final QuestDefinition HUNT = new QuestDefinition("hunt", "打獵", "elder", null, "", 1, List.of(),
         List.of(new QuestDefinition.Objective("rabbit", null, 2), new QuestDefinition.Objective(null, "fur", 3)),

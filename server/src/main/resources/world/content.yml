@@ -11,6 +11,7 @@ theages:
     #   type        equipment（裝備）、consumable（消耗品）、misc（材料雜物）
     #   slot        裝備欄位：weapon、head、body、feet
     #   heal        消耗品使用後回復的生命
+    #   mana        消耗品使用後回復的內力
     #   value       物品價值（銅錢）：商店售價預設為 value，收購價為 value × 商店的 buy-rate
     #   max-stack   同一格最多疊幾個（裝備固定 1，其他預設 20）
     item-templates:
@@ -110,6 +111,13 @@ theages:
         type: consumable
         value: 30
         heal: 60
+      - id: qi-pill
+        name: 回氣丹
+        keywords: [pill, qi]
+        description: 一顆褐色的小藥丸，吞下去丹田就暖了起來。
+        type: consumable
+        value: 20
+        mana: 40
       # --- 黑松林 ---
       - id: spider-silk
         name: 蜘蛛絲
@@ -184,6 +192,7 @@ theages:
         sells:
           - { item: herb }
           - { item: wound-salve }
+          - { item: qi-pill }
           - { item: wooden-sword }
           - { item: straw-sandals, price: 20 }
 
@@ -193,6 +202,7 @@ theages:
         buys: [misc, equipment]   # 獵人什麼都收，價格也比雜貨店好
         sells:
           - { item: wound-salve }
+          - { item: qi-pill }
           - { item: hunting-knife }
           - { item: hunter-leather }
           - { item: leather-boots }
@@ -484,6 +494,78 @@ theages:
         rewards: { exp: 80, gold: 70 }
         accept-text: 有多少收多少，三張一批。
         complete-text: 成色不錯，下次再來！
+
+    # 技能：由訓練師（friendly 或商人 NPC）教授，學費為銅錢。
+    #   type              strike（單體）、aoe（範圍）、heal（治療）、buff（增益）
+    #   level / price     學習等級與學費
+    #   mp-cost           內力消耗；cooldown-seconds 冷卻秒數（另有 1 秒共用冷卻）
+    #   power             strike/aoe：傷害倍率；heal：基礎回復量（另加 power-per-level × 等級）
+    #   radius            aoe：範圍（公尺）；heal：可以治療隊友的距離
+    #   attack / defense / duration-seconds   buff 的加成與持續時間
+    skills:
+      - id: power-strike
+        name: 重擊
+        keywords: [bash, strike]
+        description: 把全身的力氣集中在一擊上。
+        type: strike
+        level: 1
+        trainer: village-elder
+        price: 10
+        mp-cost: 8
+        cooldown-seconds: 4
+        power: 1.8
+
+      - id: mend
+        name: 運氣療傷
+        keywords: [heal, mend]
+        description: 運轉內力治療傷勢，也能替身邊的同伴療傷。
+        type: heal
+        level: 2
+        trainer: village-elder
+        price: 30
+        mp-cost: 12
+        cooldown-seconds: 8
+        power: 20
+        power-per-level: 4
+        radius: 8
+
+      - id: whirlwind
+        name: 旋風斬
+        keywords: [whirl, spin]
+        description: 原地旋身橫掃，砍中身邊所有的敵人。
+        type: aoe
+        level: 4
+        trainer: hunter-li
+        price: 120
+        mp-cost: 18
+        cooldown-seconds: 10
+        power: 0.9
+        radius: 3.5
+
+      - id: iron-skin
+        name: 鐵布衫
+        keywords: [iron, guard]
+        description: 運氣護體，刀砍不入——至少比平常耐打得多。
+        type: buff
+        level: 5
+        trainer: hunter-li
+        price: 150
+        mp-cost: 15
+        cooldown-seconds: 30
+        defense: 6
+        duration-seconds: 20
+
+      - id: tiger-pounce
+        name: 猛虎下山
+        keywords: [tiger, pounce]
+        description: 老李壓箱底的獵熊絕技，一擊之威有如猛虎撲食。
+        type: strike
+        level: 7
+        trainer: hunter-li
+        price: 300
+        mp-cost: 25
+        cooldown-seconds: 12
+        power: 2.8
 
     zones:
       - id: newbie-village
