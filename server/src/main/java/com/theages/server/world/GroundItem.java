@@ -85,6 +85,10 @@ final class GroundItem {
         return z;
     }
 
+    long ownerCharacterId() {
+        return ownerCharacterId;
+    }
+
     String ownerName() {
         return ownerName;
     }

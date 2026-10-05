@@ -60,4 +60,5 @@ const CHANNEL_CLASS: Record<TextChannel, string> = {
   [TextChannel.SYSTEM]: "system",
   [TextChannel.SAY]: "say",
   [TextChannel.ROOM]: "room",
+  [TextChannel.PARTY]: "party",
 };

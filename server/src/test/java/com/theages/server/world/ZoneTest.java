@@ -13,6 +13,7 @@ import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.ItemType;
 import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
+import com.theages.server.world.party.PartyService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,7 @@ class ZoneTest {
 
     private final AtomicInteger ids = new AtomicInteger(1);
     private final Map<String, Zone> zones = new java.util.HashMap<>();
+    private final PartyService parties = new PartyService(() -> 0L);
 
     private Zone zone(ZoneDefinition.NpcSpawn... npcs) {
         return zone(new ZoneDefinition("test", "測試區", "空曠的平原。", 60,
@@ -80,7 +82,8 @@ class ZoneTest {
             Map.of("dummy", DUMMY, "killer", KILLER, "tank", TANK, "pinata", PINATA, "shopkeeper", SHOPKEEPER),
             Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT),
             Map.of("store", STORE));
-        Zone zone = new Zone(def, content, TICK_RATE, ids::getAndIncrement, saves::add, ALWAYS_HIT, zones::get);
+        Zone zone = new Zone(def, content, TICK_RATE, ids::getAndIncrement, ALWAYS_HIT,
+            new ZoneServices(saves::add, parties, zones::get));
         zones.put(def.id(), zone);
         return zone;
     }
@@ -698,6 +701,134 @@ class ZoneTest {
         zone.tick();
         assertThat(zone.players()).isEmpty();
         assertThat(saves).hasSize(1);
+    }
+
+    // ===== 組隊 =====
+
+    /** alice（Lv aliceLevel）與 bob（Lv bobLevel）組隊，站在離木人 1、bobDistance 公尺處。 */
+    private Object[] party(int aliceLevel, int bobLevel, float bobDistance) {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("dummy", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        FakeConnection bob = new FakeConnection();
+        zone.enqueue(new ZoneEvent.Join(alice, 1, "alice", 0, 0, aliceLevel, 0, 0, 0, List.of()));
+        zone.enqueue(new ZoneEvent.Join(bob, 2, "bob", 1 - bobDistance, 0.5f, bobLevel, 0, 0, 0, List.of()));
+        zone.tick();
+        parties.invite(1, "bob");
+        parties.accept(2);
+        return new Object[] {zone, alice, bob};
+    }
+
+    private static PlayerEntity player(Zone zone, String name) {
+        return zone.players().stream().filter(p -> p.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    private void killDummy(Zone zone, FakeConnection killer) {
+        zone.enqueue(new ZoneEvent.Attack(killer, entity(zone, NpcEntity.class).id()));
+        run(zone, TICK_RATE + 1);
+    }
+
+    @Test
+    void partyMembersNearbyShareExpAndGold() {
+        Object[] r = party(1, 1, 3);
+        Zone zone = (Zone) r[0];
+        FakeConnection alice = (FakeConnection) r[1];
+        FakeConnection bob = (FakeConnection) r[2];
+        killDummy(zone, alice);
+
+        // 木人 50 經驗，兩人組隊加成 1.1：每人 round(50 × 1.1 ÷ 2) = 28
+        assertThat(player(zone, "alice").exp()).isEqualTo(28);
+        assertThat(player(zone, "bob").exp()).isEqualTo(28);
+        assertThat(bob.texts()).contains("隊伍分配：你獲得 28 點經驗。");
+        // 3 枚銅錢：每人 1 枚，零頭 1 枚歸擊殺者
+        assertThat(player(zone, "alice").gold()).isEqualTo(2);
+        assertThat(player(zone, "bob").gold()).isEqualTo(1);
+    }
+
+    @Test
+    void farAwayMembersGetNothing() {
+        Object[] r = party(1, 1, Zone.PARTY_SHARE_RANGE + 5);
+        Zone zone = (Zone) r[0];
+        killDummy(zone, (FakeConnection) r[1]);
+
+        assertThat(player(zone, "alice").exp()).isEqualTo(50);
+        assertThat(player(zone, "bob").exp()).isZero();
+    }
+
+    @Test
+    void membersTooFarBelowTopLevelGetNoExp() {
+        Object[] r = party(10, 1, 3);
+        Zone zone = (Zone) r[0];
+        FakeConnection bob = (FakeConnection) r[2];
+        killDummy(zone, (FakeConnection) r[1]);
+
+        assertThat(player(zone, "bob").exp()).isZero();
+        assertThat(bob.texts()).contains("你和隊友的等級差距太大，沒有分到經驗。");
+    }
+
+    @Test
+    void partyExpFormula() {
+        NpcEntity npc = new NpcEntity(99, DUMMY, 0, 0);
+        PlayerEntity lv1 = new PlayerEntity(1, 1, "a", new FakeConnection(), 0, 0, 1, 0, 0);
+        assertThat(Zone.partyExp(npc, lv1, 1, 1)).isEqualTo(50);
+        assertThat(Zone.partyExp(npc, lv1, 3, 1)).isEqualTo(20);  // 50 × 1.2 ÷ 3
+        assertThat(Zone.partyExp(npc, lv1, 2, 6)).isEqualTo(28);  // 差 5 級還可以
+        assertThat(Zone.partyExp(npc, lv1, 2, 7)).isZero();       // 差 6 級就不行
+    }
+
+    @Test
+    void partyMembersCanPickUpEachOthersLoot() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("pinata", 1, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        FakeConnection bob = new FakeConnection();
+        zone.enqueue(join(alice, 1, "alice", 0, 0));
+        zone.enqueue(join(bob, 2, "bob", 1, 1));
+        zone.tick();
+        parties.invite(1, "bob");
+        parties.accept(2);
+        zone.enqueue(new ZoneEvent.Attack(alice, entity(zone, NpcEntity.class).id()));
+        zone.tick();
+
+        zone.enqueue(new ZoneEvent.CommandText(bob, "get dagger"));
+        zone.tick();
+        assertThat(bob.texts()).contains("你撿起了匕首。");
+    }
+
+    @Test
+    void disconnectingLeavesPartyButTravelDoesNot() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        FakeConnection bob = new FakeConnection();
+        z[0].enqueue(join(alice, 1, "alice", 0, -18));
+        z[0].enqueue(join(bob, 2, "bob", 0, 0));
+        z[0].tick();
+        parties.invite(1, "bob");
+        parties.accept(2);
+
+        z[0].enqueue(new ZoneEvent.CommandText(alice, "north"));
+        z[0].tick();
+        z[1].tick();
+        assertThat(parties.sameParty(1, 2)).as("換區不退隊").isTrue();
+
+        z[0].enqueue(new ZoneEvent.Leave(bob));
+        z[0].tick();
+        assertThat(parties.partyOf(1)).as("離線退隊，剩一人解散").isEmpty();
+    }
+
+    @Test
+    void partyCommandsWorkFromChat() {
+        Zone zone = zone();
+        FakeConnection alice = new FakeConnection();
+        FakeConnection bob = new FakeConnection();
+        zone.enqueue(join(alice, 1, "alice", 0, 0));
+        zone.enqueue(join(bob, 2, "bob", 1, 0));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "invite bob"));
+        zone.enqueue(new ZoneEvent.CommandText(bob, "accept"));
+        zone.enqueue(new ZoneEvent.CommandText(bob, "pt 走吧"));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "party"));
+        zone.tick();
+
+        assertThat(alice.texts()).contains("【隊伍】bob：走吧");
+        assertThat(alice.texts()).anyMatch(t -> t.startsWith("隊伍成員（2/5）：") && t.contains("★alice"));
     }
 
     // ===== 工具 =====

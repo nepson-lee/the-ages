@@ -10,6 +10,7 @@
   --hp: #5fbf5a;
   --npc-hp: #d9534f;
   --exp: #6d8fd9;
+  --party: #c9a7ff;
   font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   color: var(--text);
 }
@@ -185,11 +186,17 @@ body,
   }
 }
 
-.hud {
+/* 左上角：狀態列與隊伍面板直向排列 */
+.left-column {
   position: absolute;
   top: 12px;
   left: 16px;
   width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hud {
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--panel);
@@ -266,6 +273,9 @@ body,
 }
 .console .line.room {
   color: var(--room);
+}
+.console .line.party {
+  color: var(--party);
 }
 .console .command {
   font: inherit;
@@ -516,4 +526,61 @@ body,
   font-size: 16px;
   border: 0;
   background: none;
+}
+
+/* ===== 隊伍 ===== */
+.party {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.party.hidden {
+  display: none;
+}
+.party h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--party);
+  letter-spacing: 0.1em;
+}
+.party ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.party .row {
+  display: flex;
+  justify-content: space-between;
+}
+.party li.self .name {
+  color: var(--accent);
+}
+.party .level {
+  color: var(--muted);
+}
+.party .hp {
+  height: 5px;
+  margin-top: 2px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.party .hp .fill {
+  height: 100%;
+  background: var(--hp);
+  transition: width 0.3s;
+}
+.party .hp .fill.low {
+  background: var(--error);
+}
+.party .where {
+  color: var(--muted);
+  font-size: 11px;
+}
+.party .where:empty {
+  display: none;
 }

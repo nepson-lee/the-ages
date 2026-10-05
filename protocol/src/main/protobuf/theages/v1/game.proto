@@ -52,6 +52,7 @@ message ServerMessage {
     Inventory inventory = 7;
     ShopView shop = 8;
     ShopClosed shop_closed = 9;
+    PartyView party = 10;
   }
 }
 
@@ -106,6 +107,8 @@ enum TextChannel {
   TEXT_CHANNEL_SYSTEM = 1;
   TEXT_CHANNEL_SAY = 2;
   TEXT_CHANNEL_ROOM = 3;
+  // 隊伍頻道：隊伍聊天與組隊通知，跨區域也收得到。
+  TEXT_CHANNEL_PARTY = 4;
 }
 
 message TextOutput {
@@ -204,4 +207,20 @@ message SellQuote {
 
 // 離開商人太遠或商人消失時送出，前端關閉商店畫面。
 message ShopClosed {
+}
+
+// 隊伍狀態，成員或成員數值變動時整份重送。members 為空 = 不在隊伍中。
+message PartyView {
+  repeated PartyMember members = 1;
+}
+
+message PartyMember {
+  string name = 1;
+  uint32 level = 2;
+  uint32 hp = 3;
+  uint32 max_hp = 4;
+  string zone_name = 5;
+  bool leader = 6;
+  // 自己，方便客戶端標示。
+  bool self = 7;
 }

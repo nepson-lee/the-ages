@@ -5,6 +5,7 @@ import { GameConnection } from "./net/connection";
 import { GameConsole } from "./ui/console";
 import { Hud } from "./ui/hud";
 import { InventoryPanel } from "./ui/inventory";
+import { PartyPanel } from "./ui/party";
 import { ShopPanel } from "./ui/shop";
 import { showLogin } from "./ui/login";
 
@@ -36,7 +37,11 @@ function start(token: string): void {
   const inventory = new InventoryPanel((command) => connection?.command(command));
   hud.onInventoryClick(() => inventory.toggle());
   const shop = new ShopPanel((command) => connection?.command(command));
-  root.querySelector(".game")!.append(hud.element, gameConsole.element, inventory.element, shop.element);
+  const party = new PartyPanel();
+  const leftColumn = document.createElement("div");
+  leftColumn.className = "left-column";
+  leftColumn.append(hud.element, party.element);
+  root.querySelector(".game")!.append(leftColumn, gameConsole.element, inventory.element, shop.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -47,7 +52,8 @@ function start(token: string): void {
           view.enterZone(p.value.selfId, p.value.zoneId, p.value.zoneSize);
           shop.close();
           hud.setZone(p.value.zoneName);
-          gameConsole.print("點擊地面移動、點擊生物攻擊；按 Enter 輸入指令（help 查看全部）。");
+          party.setZone(p.value.zoneName);
+          gameConsole.print("點擊地面移動、點擊生物攻擊；按 Enter 輸入指令（help 查看全部，invite <名字> 組隊）。");
           break;
         case "snapshot":
           p.value.entities.forEach((e) => view.upsert(e));
@@ -71,6 +77,9 @@ function start(token: string): void {
           break;
         case "shopClosed":
           shop.close();
+          break;
+        case "party":
+          party.update(p.value);
           break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);

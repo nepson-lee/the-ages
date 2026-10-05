@@ -4,6 +4,7 @@ import com.theages.protocol.v1.TextChannel;
 import com.theages.server.world.item.EquipSlot;
 import com.theages.server.world.item.Inventory;
 import com.theages.server.world.item.InventoryEntry;
+import com.theages.server.world.party.PartyService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,7 +41,9 @@ final class Commands {
         Map.entry("eat", "use"),
         Map.entry("drink", "use"),
         Map.entry("shop", "list"),
-        Map.entry("enter", "go"));
+        Map.entry("enter", "go"),
+        Map.entry("pt", "psay"),
+        Map.entry("team", "party"));
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -144,6 +147,50 @@ final class Commands {
 
         register("value", "請附近商人估價：value <物品>", (zone, actor, args) ->
             withItem(zone, actor, args, false, entry -> zone.appraise(actor, entry)));
+
+        register("party", "組隊：party（查看）、party leave、party kick <名字>", (zone, actor, args) -> {
+            PartyService parties = zone.parties();
+            String[] parts = args.split("\\s+", 2);
+            switch (parts[0].toLowerCase()) {
+                case "" , "list" -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_PARTY, parties.describe(actor.characterId()));
+                case "leave" -> parties.leave(actor.characterId());
+                case "kick" -> {
+                    if (parts.length < 2) {
+                        zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你要把誰踢出隊伍？");
+                    } else {
+                        parties.kick(actor.characterId(), parts[1].strip());
+                    }
+                }
+                case "invite" -> {
+                    if (parts.length < 2) {
+                        zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你要邀請誰？");
+                    } else {
+                        parties.invite(actor.characterId(), parts[1].strip());
+                    }
+                }
+                case "accept" -> parties.accept(actor.characterId());
+                default -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
+                    "用法：party、party invite <名字>、party accept、party leave、party kick <名字>");
+            }
+        });
+
+        register("invite", "邀請別人加入隊伍：invite <名字>（對方在其他區域也可以）", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你要邀請誰？");
+            } else {
+                zone.parties().invite(actor.characterId(), args);
+            }
+        });
+
+        register("accept", "接受組隊邀請", (zone, actor, args) -> zone.parties().accept(actor.characterId()));
+
+        register("psay", "隊伍頻道說話：pt <內容>", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想對隊友說什麼？");
+            } else {
+                zone.parties().chat(actor.characterId(), args);
+            }
+        });
 
         register("go", "前往其他區域：go <出口>；也可以直接打方向，例如 north、n", (zone, actor, args) -> {
             if (args.isEmpty()) {

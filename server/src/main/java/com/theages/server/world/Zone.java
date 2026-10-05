@@ -20,6 +20,7 @@ import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.ItemType;
 import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
+import com.theages.server.world.party.PartyService;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -67,6 +68,7 @@ public final class Zone {
     private final int tickRate;
     private final IntSupplier entityIds;
     private final CharacterStore store;
+    private final PartyService parties;
     private final WorldContent content;
     private final Map<String, ItemTemplate> itemTemplates;
     private final RandomGenerator random;
@@ -85,17 +87,22 @@ public final class Zone {
     private final Map<Integer, Portal> portals = new LinkedHashMap<>();
     /** 依 id 找其他區域（換區用）。 */
     private final Function<String, Zone> zones;
+    /** 分享經驗的距離（公尺）：離被殺的 NPC 這麼近的隊員才分得到。 */
+    static final float PARTY_SHARE_RANGE = 30f;
+    /** 等級比隊上最高者低超過這麼多，就分不到經驗（防止帶練）。 */
+    static final int PARTY_LEVEL_GAP = 5;
     private long tick;
 
     private ScheduledExecutorService executor;
 
     public Zone(ZoneDefinition definition, WorldContent content, int tickRate, IntSupplier entityIds,
-                CharacterStore store, RandomGenerator random, Function<String, Zone> zones) {
+                RandomGenerator random, ZoneServices services) {
         this.definition = definition;
-        this.zones = zones;
+        this.zones = services.zones();
+        this.parties = services.parties();
         this.tickRate = tickRate;
         this.entityIds = entityIds;
-        this.store = store;
+        this.store = services.store();
         this.content = content;
         this.itemTemplates = content.items();
         this.random = random;
@@ -192,6 +199,12 @@ public final class Zone {
         if (tick % (REGEN_INTERVAL_SECONDS * tickRate) == 0) {
             regenerate();
         }
+        if (tick % tickRate == 0) {
+            for (PlayerEntity p : byConnection.values()) {
+                parties.publishStatus(p.characterId(),
+                    new PartyService.MemberStatus(p.level(), p.hp(), p.maxHp(), definition.name()));
+            }
+        }
         if (tick > 0 && tick % (AUTOSAVE_INTERVAL_SECONDS * tickRate) == 0) {
             byConnection.values().forEach(this::persist);
         }
@@ -273,6 +286,7 @@ public final class Zone {
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 走了過來。", player);
         }
         byConnection.put(join.connection(), player);
+        parties.online(player.characterId(), player.name(), player.connection());
 
         player.connection().send(ServerMessage.newBuilder()
             .setWelcome(Welcome.newBuilder()
@@ -293,6 +307,7 @@ public final class Zone {
     private void onLeave(PlayerEntity player) {
         removePlayer(player);
         persist(player);
+        parties.offline(player.characterId(), player.connection());
         broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 離開了。", null);
     }
 
@@ -484,21 +499,84 @@ public final class Zone {
         return Math.max(1, (int) Math.round(npc.template().exp() * multiplier));
     }
 
-    private void rewardKill(PlayerEntity p, NpcEntity npc) {
-        int exp = killExp(npc, p);
-        int levels = p.gainExp(exp);
-        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你殺死了" + npc.name() + "！獲得 " + exp + " 點經驗。");
+    private void rewardKill(PlayerEntity killer, NpcEntity npc) {
+        List<PlayerEntity> group = sharingGroup(killer, npc);
         NpcTemplate t = npc.template();
         int gold = t.goldMax() <= 0 ? 0 : t.goldMin() + random.nextInt(t.goldMax() - t.goldMin() + 1);
-        if (gold > 0) {
-            p.addGold(gold);
-            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你從" + npc.name() + "身上搜出了 " + gold + " 枚銅錢。");
+        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, killer.name() + " 殺死了" + npc.name() + "。", killer);
+
+        if (group.size() == 1) {
+            int exp = killExp(npc, killer);
+            sendText(killer, TextChannel.TEXT_CHANNEL_SYSTEM, "你殺死了" + npc.name() + "！獲得 " + exp + " 點經驗。");
+            announceLevelUp(killer, killer.gainExp(exp));
+            if (gold > 0) {
+                killer.addGold(gold);
+                sendText(killer, TextChannel.TEXT_CHANNEL_SYSTEM, "你從" + npc.name() + "身上搜出了 " + gold + " 枚銅錢。");
+            }
+            return;
         }
-        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 殺死了" + npc.name() + "。", p);
+
+        sendText(killer, TextChannel.TEXT_CHANNEL_SYSTEM, "你殺死了" + npc.name() + "！");
+        int topLevel = group.stream().mapToInt(PlayerEntity::level).max().orElseThrow();
+        for (PlayerEntity m : group) {
+            int exp = partyExp(npc, m, group.size(), topLevel);
+            if (exp == 0) {
+                sendText(m, TextChannel.TEXT_CHANNEL_PARTY, "你和隊友的等級差距太大，沒有分到經驗。");
+            } else {
+                sendText(m, TextChannel.TEXT_CHANNEL_PARTY, "隊伍分配：你獲得 " + exp + " 點經驗。");
+                announceLevelUp(m, m.gainExp(exp));
+            }
+        }
+        if (gold > 0) {
+            // 平分，除不盡的零頭歸擊殺者
+            int share = gold / group.size();
+            int remainder = gold - share * group.size();
+            for (PlayerEntity m : group) {
+                int amount = share + (m == killer ? remainder : 0);
+                if (amount > 0) {
+                    m.addGold(amount);
+                    sendText(m, TextChannel.TEXT_CHANNEL_PARTY, "隊伍分配：你分到 " + amount + " 枚銅錢。");
+                }
+            }
+        }
+    }
+
+    /**
+     * 每人分到的經驗 = 自己單獨擊殺應得的經驗 × 組隊加成（每多一人 +10%）÷ 人數。
+     * 等級比隊上最高者低超過 {@link #PARTY_LEVEL_GAP} 級的人分不到（回傳 0）。
+     */
+    static int partyExp(NpcEntity npc, PlayerEntity member, int groupSize, int topLevel) {
+        if (topLevel - member.level() > PARTY_LEVEL_GAP) {
+            return 0;
+        }
+        double bonus = 1 + 0.1 * (groupSize - 1);
+        return Math.max(1, (int) Math.round(killExp(npc, member) * bonus / groupSize));
+    }
+
+    /** 擊殺者加上同區域、活著、離屍體夠近的隊友。 */
+    private List<PlayerEntity> sharingGroup(PlayerEntity killer, NpcEntity npc) {
+        List<PlayerEntity> group = new ArrayList<>();
+        group.add(killer);
+        parties.partyOf(killer.characterId()).ifPresent(party -> {
+            for (long id : party.members()) {
+                PlayerEntity m = byCharacter.get(id);
+                if (m != null && m != killer && !m.isDead() && m.distanceTo(npc) <= PARTY_SHARE_RANGE) {
+                    group.add(m);
+                }
+            }
+        });
+        return group;
+    }
+
+    private void announceLevelUp(PlayerEntity p, int levels) {
         if (levels > 0) {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "★ 恭喜！你的等級提升到 " + p.level() + " 級了！");
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 的等級提升到 " + p.level() + " 級了！", p);
         }
+    }
+
+    PartyService parties() {
+        return parties;
     }
 
     void respawn(NpcEntity npc) {
@@ -763,7 +841,7 @@ public final class Zone {
 
     /** 立即撿起（不檢查距離）；成功回傳 true。 */
     boolean pickUp(PlayerEntity p, GroundItem item) {
-        if (!item.canBeTakenBy(p, tick)) {
+        if (!item.canBeTakenBy(p, tick) && !parties.sameParty(item.ownerCharacterId(), p.characterId())) {
             sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "那是" + item.ownerName() + "的戰利品，再等一下吧。");
             return false;
         }
