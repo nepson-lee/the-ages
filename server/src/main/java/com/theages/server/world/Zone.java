@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
@@ -81,13 +82,17 @@ public final class Zone {
     private final Map<PlayerConnection, PlayerEntity> byConnection = new IdentityHashMap<>();
     private final Map<Long, PlayerEntity> byCharacter = new HashMap<>();
     private final Map<Integer, GroundItem> groundItems = new LinkedHashMap<>();
+    private final Map<Integer, Portal> portals = new LinkedHashMap<>();
+    /** 依 id 找其他區域（換區用）。 */
+    private final Function<String, Zone> zones;
     private long tick;
 
     private ScheduledExecutorService executor;
 
     public Zone(ZoneDefinition definition, WorldContent content, int tickRate, IntSupplier entityIds,
-                CharacterStore store, RandomGenerator random) {
+                CharacterStore store, RandomGenerator random, Function<String, Zone> zones) {
         this.definition = definition;
+        this.zones = zones;
         this.tickRate = tickRate;
         this.entityIds = entityIds;
         this.store = store;
@@ -108,6 +113,10 @@ public final class Zone {
                 npcs.add(npc);
                 entities.put(npc.id(), npc);
             }
+        }
+        for (ZoneDefinition.Exit exit : definition.exits()) {
+            Portal portal = new Portal(entityIds.getAsInt(), exit);
+            portals.put(portal.id(), portal);
         }
     }
 
@@ -163,11 +172,18 @@ public final class Zone {
         while ((event = inbox.poll()) != null) {
             handle(event);
         }
+        // 連線已斷但 Leave 沒送到這裡（例如換區途中斷線）的玩家
+        for (PlayerEntity p : new ArrayList<>(byConnection.values())) {
+            if (!p.connection().isOpen()) {
+                onLeave(p);
+            }
+        }
 
         npcBrain.update(tick);
         combat.update(tick);
         updatePickups();
         updateShops();
+        updateExits();
 
         float dt = 1f / tickRate;
         for (Entity e : entities.values()) {
@@ -227,10 +243,12 @@ public final class Zone {
             player.setCombatTarget(null); // 移動 = 停止攻擊（NPC 仍會追你）
             player.pendingPickup = null;
             player.pendingShop = null;
+            player.pendingExit = null;
             player.moveToward(definition.clamp(move.targetX()), definition.clamp(move.targetZ()));
         } else if (event instanceof ZoneEvent.Attack attack) {
             player.pendingPickup = null;
             player.pendingShop = null;
+            player.pendingExit = null;
             startAttack(player, entities.get(attack.targetId()));
         } else if (event instanceof ZoneEvent.CommandText cmd) {
             commands.execute(this, player, cmd.text());
@@ -267,18 +285,96 @@ public final class Zone {
         WorldSnapshot.Builder full = WorldSnapshot.newBuilder().setTick(tick).setFull(true);
         entities.values().forEach(e -> full.addEntities(e.toState()));
         groundItems.values().forEach(g -> full.addEntities(g.toState()));
+        portals.values().forEach(portal -> full.addEntities(portal.toState()));
         player.connection().send(ServerMessage.newBuilder().setSnapshot(full).build());
         commands.execute(this, player, "look");
     }
 
     private void onLeave(PlayerEntity player) {
+        removePlayer(player);
+        persist(player);
+        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 離開了。", null);
+    }
+
+    private void removePlayer(PlayerEntity player) {
         byConnection.remove(player.connection());
         byCharacter.remove(player.characterId());
         entities.remove(player.id());
         clearTargetsOn(player);
-        persist(player);
         broadcast(ServerMessage.newBuilder().setEntityLeft(EntityLeft.newBuilder().setId(player.id())).build());
-        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 離開了。", null);
+    }
+
+    // ===== 換區 =====
+
+    /** 站在出口多近才能通過（公尺）。 */
+    static final float EXIT_RANGE = 2.5f;
+
+    Collection<Portal> portals() {
+        return Collections.unmodifiableCollection(portals.values());
+    }
+
+    Portal portal(int id) {
+        return portals.get(id);
+    }
+
+    /** 前往出口；太遠就先走過去。 */
+    void requestTravel(PlayerEntity p, Portal portal) {
+        if (p.combatTarget() != null || isTargeted(p)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你正被纏住，脫不了身！");
+        } else if (p.distanceTo(portal.exit().x(), portal.exit().z()) <= EXIT_RANGE) {
+            travel(p, portal.exit());
+        } else {
+            p.pendingPickup = null;
+            p.pendingShop = null;
+            p.pendingExit = portal;
+            p.moveToward(portal.exit().x(), portal.exit().z());
+        }
+    }
+
+    private boolean isTargeted(PlayerEntity p) {
+        return entities.values().stream().anyMatch(e -> e.combatTarget() == p);
+    }
+
+    private void updateExits() {
+        for (PlayerEntity p : new ArrayList<>(byConnection.values())) {
+            Portal portal = p.pendingExit;
+            if (portal == null) {
+                continue;
+            }
+            if (p.combatTarget() != null || isTargeted(p)) {
+                p.pendingExit = null;
+                sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你正被纏住，脫不了身！");
+            } else if (p.distanceTo(portal.exit().x(), portal.exit().z()) <= EXIT_RANGE) {
+                travel(p, portal.exit());
+            } else {
+                p.moveToward(portal.exit().x(), portal.exit().z());
+            }
+        }
+    }
+
+    /**
+     * 把玩家交給另一個區域。目標區域在自己的執行緒上處理 Join，
+     * 所以這裡只傳記憶體中的狀態（背包以存檔格式傳遞），不直接碰對方的資料。
+     */
+    private void travel(PlayerEntity p, ZoneDefinition.Exit exit) {
+        Zone target = zones.apply(exit.to());
+        p.pendingExit = null;
+        if (p.openShop != null) {
+            p.openShop = null;
+            p.connection().send(ServerMessage.newBuilder().setShopClosed(ShopClosed.getDefaultInstance()).build());
+        }
+        removePlayer(p);
+        broadcastText(TextChannel.TEXT_CHANNEL_ROOM, p.name() + " 往" + exit.name() + "離開了。", null);
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你沿著" + exit.name() + "走去……");
+
+        CharacterSnapshot s = p.snapshot(target.definition().id());
+        CharacterSnapshot arrived = new CharacterSnapshot(s.characterId(), s.zoneId(), exit.toX(), exit.toZ(),
+            s.level(), s.exp(), s.hp(), s.gold(), s.items());
+        store.saveAsync(arrived); // 換區當下就存檔：伺服器若在途中當掉，玩家會出現在目的地
+        // 先排入 Join 再切換路由：之後的訊息都會排在 Join 後面
+        target.enqueue(new ZoneEvent.Join(p.connection(), s.characterId(), p.name(), exit.toX(), exit.toZ(),
+            s.level(), s.exp(), s.hp(), s.gold(), s.items()));
+        p.connection().attachZone(target);
     }
 
     private void persist(PlayerEntity p) {
@@ -421,6 +517,18 @@ public final class Zone {
             .filter(e -> e instanceof NpcEntity n && n.template().isMerchant())
             .map(e -> (NpcEntity) e)
             .filter(n -> p.distanceTo(n) <= TRADE_RANGE)
+            .min(Comparator.comparingDouble(p::distanceTo));
+    }
+
+    /** 不帶參數的 list 會走向這個距離內最近的商人。 */
+    static final float SHOP_SEARCH_RANGE = 15f;
+
+    /** 在 {@link #SHOP_SEARCH_RANGE} 內最近的商人（不限交易距離）。 */
+    Optional<NpcEntity> merchantInSight(PlayerEntity p) {
+        return entities.values().stream()
+            .filter(e -> e instanceof NpcEntity n && n.template().isMerchant())
+            .map(e -> (NpcEntity) e)
+            .filter(n -> p.distanceTo(n) <= SHOP_SEARCH_RANGE)
             .min(Comparator.comparingDouble(p::distanceTo));
     }
 

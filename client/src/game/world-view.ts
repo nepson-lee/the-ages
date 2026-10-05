@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { EntityKind, type CombatEvent, type EntityState } from "../gen/theages/v1/game_pb";
-import { createItemModel, createModel } from "./models";
+import { createItemModel, createModel, createPortalModel } from "./models";
+import { themeFor } from "./zones";
 
 const CAMERA_OFFSET = new THREE.Vector3(0, 14, 12);
 /** 位置平滑的速度（越大越快貼齊伺服器位置）。 */
@@ -13,6 +14,7 @@ export interface WorldViewHandlers {
   onEntityClick(id: number): void;
   onItemClick(id: number): void;
   onMerchantClick(id: number): void;
+  onPortalClick(id: number): void;
 }
 
 interface EntityView {
@@ -33,6 +35,7 @@ export class WorldView {
   private readonly labels = new CSS2DRenderer();
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  private readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0x556644, 1.6);
   private readonly timer = new THREE.Timer();
   private readonly raycaster = new THREE.Raycaster();
   private readonly entities = new Map<number, EntityView>();
@@ -52,7 +55,7 @@ export class WorldView {
 
     this.scene.background = new THREE.Color(0xb8c7d6);
     this.scene.fog = new THREE.Fog(0xb8c7d6, 30, 90);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 1.6));
+    this.scene.add(this.hemisphere);
     const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
@@ -73,8 +76,12 @@ export class WorldView {
     this.renderer.setAnimationLoop(() => this.render());
   }
 
-  /** 進入區域時建立地形。目前是程式產生的佔位場景，之後換成 glTF 模型。 */
-  enterZone(selfId: number, size: number): void {
+  /** 進入區域（包括換區）時清空場景，依區域主題重建地形。 */
+  enterZone(selfId: number, zoneId: string, size: number): void {
+    const theme = themeFor(zoneId);
+    (this.scene.background as THREE.Color).setHex(theme.sky);
+    this.scene.fog = new THREE.Fog(theme.sky, theme.fogNear, theme.fogFar);
+    this.hemisphere.intensity = theme.ambient;
     this.selfId = selfId;
     this.cameraPlaced = false;
     [...this.entities.keys()].forEach((id) => this.remove(id));
@@ -83,11 +90,11 @@ export class WorldView {
     }
     this.ground = new THREE.Mesh(
       new THREE.PlaneGeometry(size, size),
-      new THREE.MeshStandardMaterial({ color: 0x7a9a5a }),
+      new THREE.MeshStandardMaterial({ color: theme.ground }),
     );
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
-    this.zoneRoot = new THREE.Group().add(this.ground, createVillageProps(size));
+    this.zoneRoot = new THREE.Group().add(this.ground, theme.props(size));
     this.scene.add(this.zoneRoot);
   }
 
@@ -144,13 +151,15 @@ export class WorldView {
 
   private create(state: EntityState, pos: THREE.Vector3): EntityView {
     const isSelf = state.id === this.selfId;
-    const model = state.kind === EntityKind.ITEM ? createItemModel(state.model) : createModel(state.model, isSelf);
+    const model = state.kind === EntityKind.ITEM ? createItemModel(state.model)
+      : state.kind === EntityKind.PORTAL ? createPortalModel()
+      : createModel(state.model, isSelf);
     const group = new THREE.Group().add(model.object);
     group.position.copy(pos);
     group.userData.entityId = state.id;
 
     const label = document.createElement("div");
-    const kindClass = { [EntityKind.NPC]: "npc", [EntityKind.ITEM]: "item", [EntityKind.MERCHANT]: "merchant" }[state.kind as number] ?? "player";
+    const kindClass = { [EntityKind.NPC]: "npc", [EntityKind.ITEM]: "item", [EntityKind.MERCHANT]: "merchant", [EntityKind.PORTAL]: "portal" }[state.kind as number] ?? "player";
     label.className = `name-label ${kindClass}${isSelf ? " self" : ""}`;
     label.innerHTML = `<span class="name"></span><div class="hp"><div class="fill"></div></div>`;
     const labelObj = new CSS2DObject(label);
@@ -197,6 +206,10 @@ export class WorldView {
         this.handlers.onMerchantClick(view.state.id);
         return;
       }
+      if (view?.state.kind === EntityKind.PORTAL) {
+        this.handlers.onPortalClick(view.state.id);
+        return;
+      }
       if (view) {
         this.handlers.onEntityClick(view.state.id);
         return;
@@ -235,6 +248,10 @@ export class WorldView {
           bob.position.y = 0.3 + Math.sin(now * 2.5 + view.state.id) * 0.06;
           bob.rotation.y = now * 1.2;
         }
+        continue;
+      }
+      if (view.state.kind === EntityKind.PORTAL) {
+        group.getObjectByName("bob")?.scale.setScalar(1 + Math.sin(now * 2) * 0.04);
         continue;
       }
       const dx = target.x - group.position.x;
@@ -284,34 +301,4 @@ function groundRing(inner: number, outer: number, color: number): THREE.Mesh {
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.02;
   return ring;
-}
-
-/** 佔位用的村莊擺設：中央古井與周圍的樹（固定亂數種子，每位玩家看到的一樣）。 */
-function createVillageProps(size: number): THREE.Group {
-  const props = new THREE.Group();
-  const stone = new THREE.MeshStandardMaterial({ color: 0x8a8a8a });
-  const well = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.3, 0.9, 20, 1, true), stone);
-  well.position.y = 0.45;
-  well.castShadow = true;
-  props.add(well);
-
-  let seed = 4444;
-  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const trunk = new THREE.MeshStandardMaterial({ color: 0x6b4a2b });
-  const leaves = new THREE.MeshStandardMaterial({ color: 0x3f6b35 });
-  for (let i = 0; i < 40; i++) {
-    const angle = random() * Math.PI * 2;
-    const radius = 8 + random() * (size / 2 - 10);
-    const tree = new THREE.Group();
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.2), trunk);
-    t.position.y = 0.6;
-    const l = new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.2, 8), leaves);
-    l.position.y = 2.1;
-    t.castShadow = l.castShadow = true;
-    tree.add(t, l);
-    tree.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-    tree.scale.setScalar(0.8 + random() * 0.6);
-    props.add(tree);
-  }
-  return props;
 }

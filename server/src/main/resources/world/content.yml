@@ -110,6 +110,67 @@ theages:
         type: consumable
         value: 30
         heal: 60
+      # --- 黑松林 ---
+      - id: spider-silk
+        name: 蜘蛛絲
+        keywords: [silk]
+        description: 一團黏呼呼又堅韌的蜘蛛絲，裁縫很喜歡用它來縫皮甲。
+        type: misc
+        value: 12
+      - id: boar-tusk
+        name: 山豬獠牙
+        keywords: [tusk]
+        description: 一根彎曲的獠牙，尖端還沾著泥土。
+        type: misc
+        value: 20
+      - id: boar-meat
+        name: 山豬肉
+        keywords: [pork]
+        description: 一大塊帶著肥油的山豬肉，烤起來滋滋作響。
+        type: consumable
+        value: 8
+        heal: 35
+      - id: bear-pelt
+        name: 熊皮
+        keywords: [bearskin]
+        description: 一整張厚重的黑熊皮，能賣個好價錢。
+        type: misc
+        value: 90
+      - id: hunting-knife
+        name: 獵刀
+        keywords: [knife]
+        description: 刀背厚實的獵刀，剝皮、劈柴、砍狼都很順手。
+        type: equipment
+        slot: weapon
+        value: 150
+        attack: 11
+      - id: hunter-leather
+        name: 獵人皮甲
+        keywords: [leather, armor]
+        description: 以狼皮和蜘蛛絲縫製的皮甲，輕巧又耐用。
+        type: equipment
+        slot: body
+        value: 220
+        defense: 7
+        max-hp: 20
+      - id: leather-boots
+        name: 皮靴
+        keywords: [boots]
+        description: 鞋底釘了鐵片的皮靴，走在泥濘的林道上也不怕。
+        type: equipment
+        slot: feet
+        value: 90
+        defense: 3
+        max-hp: 10
+      - id: bear-fur-hat
+        name: 熊皮帽
+        keywords: [furhat]
+        description: 用熊皮做的大帽子，戴上去整個人看起來壯了一圈。
+        type: equipment
+        slot: head
+        value: 160
+        defense: 5
+        max-hp: 15
 
     # 商店：由商人 NPC 的 shop 欄位引用。
     #   buy-rate    收購價 = 物品 value × buy-rate（至少 1 枚）
@@ -125,6 +186,16 @@ theages:
           - { item: wound-salve }
           - { item: wooden-sword }
           - { item: straw-sandals, price: 20 }
+
+      - id: hunter-lodge
+        name: 獵人小屋
+        buy-rate: 0.6
+        buys: [misc, equipment]   # 獵人什麼都收，價格也比雜貨店好
+        sells:
+          - { item: wound-salve }
+          - { item: hunting-knife }
+          - { item: hunter-leather }
+          - { item: leather-boots }
 
     # NPC 模板：同一模板可以在多個區域重複放置。
     #   keywords        kill/look 指令可用的英文代稱（MUD 傳統）
@@ -199,6 +270,84 @@ theages:
           - { item: wolf-pelt-vest, chance: 0.1 }
           - { item: leather-cap, chance: 0.1 }
 
+      - id: spider
+        name: 毒蜘蛛
+        keywords: [spider]
+        description: 一隻拳頭大的黑色蜘蛛，背上有血紅色的花紋。
+        level: 4
+        max-hp: 45
+        attack: 14
+        defense: 2
+        exp: 55
+        speed: 3.5
+        verb: 螫了
+        aggressive: true
+        respawn-seconds: 25
+        wander-radius: 4
+        gold-min: 2
+        gold-max: 6
+        loot:
+          - { item: spider-silk, chance: 0.6, min: 1, max: 2 }
+          - { item: wound-salve, chance: 0.05 }
+
+      - id: boar
+        name: 山豬
+        keywords: [boar]
+        description: 一頭壯碩的山豬，正用鼻子拱著地上的落葉，獠牙閃著寒光。
+        level: 5
+        max-hp: 95
+        attack: 16
+        defense: 5
+        exp: 85
+        speed: 4
+        verb: 用獠牙頂了
+        aggressive: false
+        respawn-seconds: 30
+        wander-radius: 6
+        gold-min: 3
+        gold-max: 9
+        loot:
+          - { item: boar-meat, chance: 0.7 }
+          - { item: boar-tusk, chance: 0.4 }
+          - { item: leather-boots, chance: 0.05 }
+
+      - id: black-bear
+        name: 黑熊
+        keywords: [bear]
+        description: 一頭像小山一樣的黑熊，胸前有一道月牙形的白毛。牠站起來比你高出兩個頭。
+        level: 8
+        max-hp: 280
+        attack: 26
+        defense: 9
+        exp: 320
+        speed: 4.2
+        verb: 一掌拍中了
+        aggressive: true
+        respawn-seconds: 120
+        wander-radius: 5
+        gold-min: 20
+        gold-max: 45
+        loot:
+          - { item: bear-pelt, chance: 1.0 }
+          - { item: bear-fur-hat, chance: 0.25 }
+          - { item: hunting-knife, chance: 0.1 }
+
+      - id: hunter-li
+        name: 獵人老李
+        keywords: [li, hunter]
+        description: 滿臉鬍渣的老獵人，背著一把舊弓，腰間掛著好幾張剛剝下來的皮。
+        level: 15
+        max-hp: 999
+        attack: 0
+        defense: 0
+        exp: 0
+        speed: 0
+        verb: 拍了拍
+        aggressive: false
+        respawn-seconds: 10
+        wander-radius: 0
+        shop: hunter-lodge
+
       - id: shopkeeper-chen
         name: 陳老闆
         keywords: [chen, shopkeeper, merchant]
@@ -221,6 +370,9 @@ theages:
         description: 晨霧籠罩著這座寧靜的小村莊，村中央的古井旁站著幾位剛踏上旅途的冒險者。
         size: 60
         spawn: { x: 0, z: 0 }
+        # 出口：玩家站在 (x, z) 附近 2.5 公尺內可以通過，抵達 to 區域的 (to-x, to-z)
+        exits:
+          - { name: 往黑松林的小徑, keywords: [north, n, forest], x: 0, z: -27, to: dark-pine-forest, to-x: 0, to-z: 30 }
         npcs:
           # 古井旁的雜貨店
           - { template: shopkeeper-chen, x: 3, z: -2 }
@@ -229,3 +381,21 @@ theages:
           - { template: rabbit, x: -14, z: -12, count: 3 }
           # 村外的狼：主動攻擊，新手要小心
           - { template: wolf, x: 22, z: 20, count: 2 }
+
+      - id: dark-pine-forest
+        name: 黑松林
+        description: 高大的黑松遮住了天空，林間瀰漫著潮濕的霉味。遠處不時傳來狼嚎，偶爾還有樹枝被踩斷的聲音。
+        size: 80
+        spawn: { x: 0, z: 30 }
+        exits:
+          - { name: 回新手村的小徑, keywords: [south, s, village], x: 0, z: 36, to: newbie-village, to-x: 0, to-z: -24 }
+        npcs:
+          # 林道入口的獵人小屋
+          - { template: hunter-li, x: 3, z: 31 }
+          - { template: wolf, x: -14, z: 14, count: 3 }
+          - { template: wolf, x: 16, z: 10, count: 2 }
+          - { template: spider, x: -20, z: -6, count: 3 }
+          - { template: spider, x: 22, z: -14, count: 2 }
+          - { template: boar, x: 6, z: -4, count: 3 }
+          # 林子深處的黑熊：建議 6 級以上、穿好裝備再來
+          - { template: black-bear, x: 0, z: -30 }

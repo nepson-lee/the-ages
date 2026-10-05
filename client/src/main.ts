@@ -29,6 +29,7 @@ function start(token: string): void {
     onEntityClick: (id) => connection?.attack(id),
     onItemClick: (id) => connection?.command(`get #${id}`),
     onMerchantClick: (id) => connection?.command(`list #${id}`),
+    onPortalClick: (id) => connection?.command(`go #${id}`),
   });
   const hud = new Hud();
   const gameConsole = new GameConsole((text) => connection?.command(text));
@@ -43,7 +44,8 @@ function start(token: string): void {
       const p = msg.payload;
       switch (p.case) {
         case "welcome":
-          view.enterZone(p.value.selfId, p.value.zoneSize);
+          view.enterZone(p.value.selfId, p.value.zoneId, p.value.zoneSize);
+          shop.close();
           hud.setZone(p.value.zoneName);
           gameConsole.print("點擊地面移動、點擊生物攻擊；按 Enter 輸入指令（help 查看全部）。");
           break;

@@ -105,6 +105,25 @@ export function createItemModel(templateId: string): Model {
   return { object: bob, labelHeight: 0.85 };
 }
 
+/** 區域出口：地上的光圈加一道半透明光柱。內層 "bob" 會在 world-view 裡緩慢旋轉。 */
+export function createPortalModel(): Model {
+  const g = new THREE.Group();
+  const glow = new THREE.MeshBasicMaterial({ color: 0x9fe3ff, transparent: true, opacity: 0.35, depthWrite: false });
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 3.2, 24, 1, true), glow);
+  column.position.y = 1.6;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.9, 1.3, 32),
+    new THREE.MeshBasicMaterial({ color: 0xc8f1ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.03;
+  const bob = new THREE.Group();
+  bob.name = "bob";
+  bob.add(column);
+  g.add(ring, bob);
+  return { object: g, labelHeight: 3.6 };
+}
+
 export function createModel(model: string, isSelf: boolean): Model {
   if (model === "player") {
     return player(isSelf);

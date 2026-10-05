@@ -24,7 +24,7 @@ public class World implements SmartLifecycle {
         for (ZoneDefinition def : properties.zones()) {
             // 每個區域各自一個亂數產生器：只在自己的 tick 執行緒上使用，不需同步
             zones.put(def.id(), new Zone(def, content, properties.tickRate(), entityIds::getAndIncrement,
-                store, seeds.split()));
+                store, seeds.split(), zones::get));
         }
     }
 

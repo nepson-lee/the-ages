@@ -39,7 +39,8 @@ final class Commands {
         Map.entry("wield", "wear"),
         Map.entry("eat", "use"),
         Map.entry("drink", "use"),
-        Map.entry("shop", "list"));
+        Map.entry("shop", "list"),
+        Map.entry("enter", "go"));
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -117,7 +118,7 @@ final class Commands {
 
         register("list", "查看附近商人賣什麼", (zone, actor, args) -> {
             Optional<NpcEntity> merchant = args.isEmpty()
-                ? zone.merchantNear(actor)
+                ? zone.merchantInSight(actor)
                 : findNpc(zone, actor, args).filter(n -> n.template().isMerchant());
             merchant.ifPresentOrElse(m -> zone.openShop(actor, m),
                 () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這附近沒有商人。"));
@@ -143,6 +144,15 @@ final class Commands {
 
         register("value", "請附近商人估價：value <物品>", (zone, actor, args) ->
             withItem(zone, actor, args, false, entry -> zone.appraise(actor, entry)));
+
+        register("go", "前往其他區域：go <出口>；也可以直接打方向，例如 north、n", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, exitList(zone));
+                return;
+            }
+            findPortal(zone, args).ifPresentOrElse(portal -> zone.requestTravel(actor, portal),
+                () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有往「" + args + "」的路。"));
+        });
     }
 
     /** 「物品 [數量]」的解析結果；all 以 {@link Integer#MAX_VALUE} 表示。 */
@@ -188,7 +198,13 @@ final class Commands {
 
         Entry entry = handlers.get(verb);
         if (entry == null) {
-            zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "什麼？（輸入 help 查看指令）");
+            // MUD 傳統：出口的方向詞本身就是指令（north、n……）
+            Optional<Portal> exit = args.isEmpty() ? findPortal(zone, verb) : Optional.empty();
+            if (exit.isPresent()) {
+                zone.requestTravel(actor, exit.get());
+            } else {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "什麼？（輸入 help 查看指令）");
+            }
             return;
         }
         entry.handler().run(zone, actor, args);
@@ -236,7 +252,8 @@ final class Commands {
         String text = "【" + def.name() + "】\n" + def.description()
             + (others.isEmpty() ? "" : "\n這裡有：" + others)
             + (creatures.isEmpty() ? "" : "\n生物：" + creatures)
-            + (loot.isEmpty() ? "" : "\n地上有：" + loot);
+            + (loot.isEmpty() ? "" : "\n地上有：" + loot)
+            + "\n" + exitList(zone);
         zone.sendText(actor, TextChannel.TEXT_CHANNEL_ROOM, text);
     }
 
@@ -260,6 +277,27 @@ final class Commands {
         findGroundItem(zone, actor, args).ifPresentOrElse(
             g -> zone.requestPickUp(actor, g),
             () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "地上沒有「" + args + "」。"));
+    }
+
+    private static String exitList(Zone zone) {
+        if (zone.portals().isEmpty()) {
+            return "這裡沒有明顯的出口。";
+        }
+        return zone.portals().stream()
+            .map(p -> p.exit().name() + (p.exit().keywords().isEmpty() ? "" : "(" + p.exit().keywords().get(0) + ")"))
+            .collect(Collectors.joining("、", "出口：", ""));
+    }
+
+    /** 出口：{@code #<id>}、名稱或代稱。 */
+    private static Optional<Portal> findPortal(Zone zone, String query) {
+        if (query.startsWith("#")) {
+            try {
+                return Optional.ofNullable(zone.portal(Integer.parseInt(query.substring(1))));
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+        return zone.portals().stream().filter(p -> p.exit().matches(query)).findFirst();
     }
 
     /** 找背包裡的物品後執行；找不到就提示。 */

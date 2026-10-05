@@ -67,15 +67,22 @@ class ZoneTest {
         }
     };
 
+    private final AtomicInteger ids = new AtomicInteger(1);
+    private final Map<String, Zone> zones = new java.util.HashMap<>();
+
     private Zone zone(ZoneDefinition.NpcSpawn... npcs) {
-        ZoneDefinition def = new ZoneDefinition("test", "測試區", "空曠的平原。", 60,
-            new ZoneDefinition.Point(0, 0), List.of(npcs));
-        AtomicInteger ids = new AtomicInteger(1);
+        return zone(new ZoneDefinition("test", "測試區", "空曠的平原。", 60,
+            new ZoneDefinition.Point(0, 0), List.of(npcs), List.of()));
+    }
+
+    private Zone zone(ZoneDefinition def) {
         WorldContent content = new WorldContent(
             Map.of("dummy", DUMMY, "killer", KILLER, "tank", TANK, "pinata", PINATA, "shopkeeper", SHOPKEEPER),
             Map.of("dagger", DAGGER, "vest", VEST, "meat", MEAT),
             Map.of("store", STORE));
-        return new Zone(def, content, TICK_RATE, ids::getAndIncrement, saves::add, ALWAYS_HIT);
+        Zone zone = new Zone(def, content, TICK_RATE, ids::getAndIncrement, saves::add, ALWAYS_HIT, zones::get);
+        zones.put(def.id(), zone);
+        return zone;
     }
 
     private static ZoneEvent.Join join(PlayerConnection c, long characterId, String name, float x, float z) {
@@ -572,6 +579,17 @@ class ZoneTest {
     }
 
     @Test
+    void listWithoutArgumentsWalksToMerchantInSight() {
+        Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 10, 0, 1));
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(rich(alice, 0, 0));
+        zone.enqueue(new ZoneEvent.CommandText(alice, "list"));
+        run(zone, 3 * TICK_RATE);
+
+        assertThat(alice.sent).anyMatch(ServerMessage::hasShop);
+    }
+
+    @Test
     void merchantsCannotBeAttacked() {
         Zone zone = zone(new ZoneDefinition.NpcSpawn("shopkeeper", 1, 0, 1));
         FakeConnection alice = new FakeConnection();
@@ -588,6 +606,100 @@ class ZoneTest {
         assertThat(entity(zone, PlayerEntity.class).combatTarget()).isNull();
     }
 
+    // ===== 換區 =====
+
+    /** 村莊 (0,-20) 有往北的出口通到森林 (0,20)；森林 (0,25) 有往南的出口回村莊 (0,-15)。 */
+    private Zone[] village() {
+        Zone village = zone(new ZoneDefinition("village", "村莊", "小村。", 60, new ZoneDefinition.Point(0, 0), List.of(),
+            List.of(new ZoneDefinition.Exit("北邊小徑", List.of("north", "n"), 0, -20, "forest", 0, 20))));
+        Zone forest = zone(new ZoneDefinition("forest", "森林", "樹很多。", 60, new ZoneDefinition.Point(0, 20),
+            List.of(new ZoneDefinition.NpcSpawn("tank", 15, 15, 1)),
+            List.of(new ZoneDefinition.Exit("南邊小徑", List.of("south", "s"), 0, 25, "village", 0, -15))));
+        return new Zone[] {village, forest};
+    }
+
+    @Test
+    void walkingThroughExitMovesPlayerToTargetZoneWithState() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        z[0].enqueue(new ZoneEvent.Join(alice, 7, "alice", 0, -10, 2, 33, 40, 55, List.of(new ItemRecord("meat", 3, false))));
+        z[0].enqueue(new ZoneEvent.CommandText(alice, "n")); // 方向詞直接當指令
+        run(z[0], 3 * TICK_RATE);
+
+        assertThat(z[0].players()).isEmpty();
+        assertThat(alice.zone).isSameAs(z[1]);
+        assertThat(alice.texts()).contains("你沿著北邊小徑走去……");
+        assertThat(saves).as("換區當下存檔，位置是目的地").anyMatch(snap ->
+            snap.zoneId().equals("forest") && snap.x() == 0 && snap.z() == 20 && snap.gold() == 55);
+
+        alice.sent.clear();
+        z[1].tick();
+        PlayerEntity p = entity(z[1], PlayerEntity.class);
+        assertThat(p.level()).isEqualTo(2);
+        assertThat(p.exp()).isEqualTo(33);
+        assertThat(p.gold()).isEqualTo(55);
+        assertThat(p.inventory().find("meat", false).orElseThrow().quantity()).isEqualTo(3);
+        assertThat(p.z()).isEqualTo(20f);
+        assertThat(alice.sent.get(0).getWelcome().getZoneId()).isEqualTo("forest");
+        assertThat(alice.sent.get(1).getSnapshot().getEntitiesList())
+            .as("完整快照含出口")
+            .anyMatch(e -> e.getKind() == EntityKind.ENTITY_KIND_PORTAL && e.getName().equals("南邊小徑"));
+    }
+
+    @Test
+    void goWalksToFarExitFirst() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        z[0].enqueue(join(alice, 1, "alice", 0, 10)); // 離出口 30 公尺
+        z[0].enqueue(new ZoneEvent.CommandText(alice, "go 北邊小徑"));
+        run(z[0], 2 * TICK_RATE);
+        assertThat(z[0].players()).as("還在路上").hasSize(1);
+
+        run(z[0], 5 * TICK_RATE);
+        assertThat(z[0].players()).isEmpty();
+        assertThat(alice.zone).isSameAs(z[1]);
+    }
+
+    @Test
+    void cannotLeaveWhileInCombat() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        z[1].enqueue(join(alice, 1, "alice", 14, 15));
+        z[1].tick();
+        z[1].enqueue(new ZoneEvent.Attack(alice, entity(z[1], NpcEntity.class).id()));
+        z[1].tick();
+
+        z[1].enqueue(new ZoneEvent.CommandText(alice, "south"));
+        z[1].tick();
+        assertThat(alice.texts()).contains("你正被纏住，脫不了身！");
+        assertThat(z[1].players()).hasSize(1);
+    }
+
+    @Test
+    void lookListsExitsAndUnknownDirectionIsRejected() {
+        Zone[] z = village();
+        FakeConnection alice = new FakeConnection();
+        z[0].enqueue(join(alice, 1, "alice", 0, 0));
+        z[0].enqueue(new ZoneEvent.CommandText(alice, "west"));
+        z[0].tick();
+
+        assertThat(alice.texts()).anyMatch(t -> t.contains("出口：北邊小徑(north)"));
+        assertThat(alice.texts()).contains("什麼？（輸入 help 查看指令）");
+    }
+
+    @Test
+    void closedConnectionIsRemovedEvenWithoutLeaveEvent() {
+        Zone zone = zone();
+        FakeConnection alice = new FakeConnection();
+        zone.enqueue(join(alice, 1, "alice", 0, 0));
+        zone.tick();
+
+        alice.open = false; // 例如換區途中斷線，Leave 被送到了舊區域
+        zone.tick();
+        assertThat(zone.players()).isEmpty();
+        assertThat(saves).hasSize(1);
+    }
+
     // ===== 工具 =====
 
     private record WorldSnapshotAssert(ServerMessage message) {
@@ -599,6 +711,18 @@ class ZoneTest {
     private static final class FakeConnection implements PlayerConnection {
         final List<ServerMessage> sent = new ArrayList<>();
         String closedReason;
+        boolean open = true;
+        Zone zone;
+
+        @Override
+        public boolean isOpen() {
+            return open;
+        }
+
+        @Override
+        public void attachZone(Zone zone) {
+            this.zone = zone;
+        }
 
         @Override
         public void send(ServerMessage message) {

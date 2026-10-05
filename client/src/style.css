@@ -139,6 +139,10 @@ body,
 .name-label.merchant .name {
   color: #b9f0c0;
 }
+.name-label.portal .name {
+  color: #c8f1ff;
+  background: rgba(20, 60, 90, 0.6);
+}
 .name-label.item .name {
   color: #ffe9a8;
   font-size: 12px;

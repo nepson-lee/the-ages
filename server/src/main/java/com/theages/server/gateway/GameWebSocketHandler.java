@@ -8,7 +8,9 @@ import com.theages.server.character.PlayerCharacterRepository;
 import com.theages.server.world.World;
 import com.theages.server.world.Zone;
 import com.theages.server.world.ZoneEvent;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -18,20 +20,21 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.BinaryWebSocketHandler;
 
 /**
- * WebSocket 進出口：只負責解碼、驗證格式，再轉成 {@link ZoneEvent} 丟進區域。
+ * WebSocket 進出口：只負責解碼、驗證格式，再轉成 {@link ZoneEvent} 丟進玩家目前所在的區域。
  * 這裡跑在 Web 容器的執行緒上，不可直接碰區域狀態。
  */
 @Component
 public class GameWebSocketHandler extends BinaryWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GameWebSocketHandler.class);
-    private static final String ZONE_ATTR = "zone";
     private static final String CONNECTION_ATTR = "connection";
     private static final int MAX_COMMAND_LENGTH = 256;
 
     private final World world;
     private final PlayerCharacterRepository characters;
     private final CharacterItemRepository items;
+    /** 所有區域的線上角色，用來處理同一角色重複登入。 */
+    private final Map<Long, WebSocketPlayerConnection> online = new ConcurrentHashMap<>();
 
     public GameWebSocketHandler(World world, PlayerCharacterRepository characters, CharacterItemRepository items) {
         this.world = world;
@@ -48,9 +51,12 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
             return;
         }
         PlayerCharacter c = character.get();
-        Zone zone = world.zoneOrStart(c.getZoneId());
-        WebSocketPlayerConnection connection = new WebSocketPlayerConnection(session);
-        session.getAttributes().put(ZONE_ATTR, zone);
+        // 已經在線上：送進他目前所在的區域，由區域沿用記憶體中的狀態並踢掉舊連線。
+        // （資料庫裡的區域與位置可能還沒寫入，不能拿來決定區域）
+        WebSocketPlayerConnection previous = online.get(c.getId());
+        Zone zone = previous != null && previous.isOpen() ? previous.zone() : world.zoneOrStart(c.getZoneId());
+        WebSocketPlayerConnection connection = new WebSocketPlayerConnection(session, c.getId(), zone);
+        online.put(c.getId(), connection);
         session.getAttributes().put(CONNECTION_ATTR, connection);
         zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
             c.getLevel(), c.getExp(), c.getHp(), c.getGold(), items.loadRecords(c.getId())));
@@ -59,9 +65,8 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
-        Zone zone = (Zone) session.getAttributes().get(ZONE_ATTR);
         WebSocketPlayerConnection connection = (WebSocketPlayerConnection) session.getAttributes().get(CONNECTION_ATTR);
-        if (zone == null || connection == null) {
+        if (connection == null) {
             return;
         }
         ClientMessage msg;
@@ -71,6 +76,7 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
             session.close(CloseStatus.BAD_DATA);
             return;
         }
+        Zone zone = connection.zone(); // 換區後會指向新的區域
         switch (msg.getPayloadCase()) {
             case MOVE_TO -> zone.enqueue(new ZoneEvent.Move(connection,
                 msg.getMoveTo().getTarget().getX(), msg.getMoveTo().getTarget().getZ()));
@@ -88,10 +94,12 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        Zone zone = (Zone) session.getAttributes().get(ZONE_ATTR);
         WebSocketPlayerConnection connection = (WebSocketPlayerConnection) session.getAttributes().get(CONNECTION_ATTR);
-        if (zone != null && connection != null) {
-            zone.enqueue(new ZoneEvent.Leave(connection));
+        if (connection == null) {
+            return;
         }
+        online.remove(connection.characterId(), connection);
+        // 若剛好在換區途中，這個 Leave 可能送錯區域；目標區域會在下個 tick 發現連線已關閉並自行移除
+        connection.zone().enqueue(new ZoneEvent.Leave(connection));
     }
 }

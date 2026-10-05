@@ -22,6 +22,8 @@ public final class PlayerEntity extends Entity {
     NpcEntity pendingShop;
     /** 目前開著商店畫面的商人；null = 沒開。 */
     NpcEntity openShop;
+    /** 正在走過去的出口；null = 沒有。 */
+    Portal pendingExit;
     /** 下一次可以使用消耗品的 tick。 */
     long nextUseTick;
 

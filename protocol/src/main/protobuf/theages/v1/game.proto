@@ -55,6 +55,7 @@ message ServerMessage {
   }
 }
 
+// 進入區域時送出（包括從別的區域傳送過來）。客戶端收到時應清空場景、依 zone_id 重建地形。
 message Welcome {
   uint32 self_id = 1;
   string zone_id = 2;
@@ -71,6 +72,8 @@ enum EntityKind {
   ENTITY_KIND_ITEM = 3;
   // 商人：不能攻擊；點擊後送出 `list #<id>` 指令打開商店。
   ENTITY_KIND_MERCHANT = 4;
+  // 區域出口：model 為 "portal"；點擊後送出 `go #<id>` 指令前往。
+  ENTITY_KIND_PORTAL = 5;
 }
 
 message EntityState {

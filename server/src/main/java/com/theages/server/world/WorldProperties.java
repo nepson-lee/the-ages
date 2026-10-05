@@ -53,9 +53,17 @@ public record WorldProperties(int tickRate, String startingZone, List<String> st
             }
             require(npc.goldMax() >= npc.goldMin(), "NPC " + npc.id() + " 的 gold-max 小於 gold-min");
         }
+        Map<String, ZoneDefinition> zonesById = index(zones, ZoneDefinition::id);
         for (ZoneDefinition zone : zones) {
             for (ZoneDefinition.NpcSpawn spawn : zone.npcs()) {
                 require(npcs.containsKey(spawn.template()), "區域 " + zone.id() + " 引用了不存在的 NPC 模板：" + spawn.template());
+            }
+            for (ZoneDefinition.Exit exit : zone.exits()) {
+                ZoneDefinition to = zonesById.get(exit.to());
+                require(to != null, "區域 " + zone.id() + " 的出口「" + exit.name() + "」通往不存在的區域：" + exit.to());
+                require(zone.contains(exit.x(), exit.z()), "區域 " + zone.id() + " 的出口「" + exit.name() + "」在區域範圍外");
+                require(to.contains(exit.toX(), exit.toZ()),
+                    "區域 " + zone.id() + " 的出口「" + exit.name() + "」的抵達點在 " + to.id() + " 範圍外");
             }
         }
         return new WorldContent(npcs, items, shopsById);
