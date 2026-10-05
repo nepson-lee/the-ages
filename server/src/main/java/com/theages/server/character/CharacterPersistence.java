@@ -1,5 +1,6 @@
 package com.theages.server.character;
 
+import com.theages.server.world.CharacterSnapshot;
 import com.theages.server.world.CharacterStore;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.ExecutorService;
@@ -23,15 +24,15 @@ public class CharacterPersistence implements CharacterStore {
     }
 
     @Override
-    public void saveAsync(long characterId, String zoneId, float x, float z) {
+    public void saveAsync(CharacterSnapshot s) {
         executor.execute(() -> {
             try {
-                repository.findById(characterId).ifPresent(c -> {
-                    c.moveTo(zoneId, x, z);
+                repository.findById(s.characterId()).ifPresent(c -> {
+                    c.update(s.zoneId(), s.x(), s.z(), s.level(), s.exp(), s.hp());
                     repository.save(c);
                 });
             } catch (RuntimeException e) {
-                log.error("角色 {} 存檔失敗", characterId, e);
+                log.error("角色 {} 存檔失敗", s.characterId(), e);
             }
         });
     }

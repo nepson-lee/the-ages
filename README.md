@@ -74,12 +74,41 @@ cd client && npm run build   # 前端：型別檢查 + 打包
 
 | 指令 | 說明 |
 |---|---|
-| `look`（`l`） | 觀察四周 |
+| `look`（`l`） | 觀察四周；`look <目標>` 觀察某個生物 |
 | `say <內容>`（`'`） | 對區域內的人說話 |
 | `who` | 列出區域內的玩家 |
+| `kill <目標>`（`k`） | 攻擊生物，例如 `kill rabbit`、`kill 野兔`；也可以直接點擊生物 |
+| `flee` | 停止攻擊（對方可能還會追你） |
+| `score`（`hp`、`sc`） | 查看等級、生命、攻防、經驗 |
 | `help` | 列出所有指令 |
 
-新增指令：在 `server/.../world/Commands.java` 的建構子裡 `register`。
+點擊地面移動也會停止攻擊。新增指令：在 `server/.../world/Commands.java` 的建構子裡 `register`。
+
+## 戰鬥規則
+
+回合制近戰，沿用 MUD 的 tick 精神：
+
+- 每個在戰鬥中的角色**每秒出手一次**；不在攻擊距離（1.8 公尺）內時會先追上目標。
+- 命中率 80%，每差一級 ±5%（限制在 30%～95%）。
+- 傷害 = 攻擊力 × (0.7～1.3) − 防禦力 ÷ 2，至少 1 點。
+- 被攻擊的 NPC 會反擊；`aggressive` 的 NPC 會主動攻擊 6 公尺內的玩家。
+- NPC 離出生點超過 18 公尺就放棄追擊，走回家後補滿 HP。
+- 脫離戰鬥 5 秒後開始回血，每 3 秒回 5%。
+- 擊殺經驗依等級差調整：NPC 每高一級 +20%、每低一級 −20%（10%～200%）。
+- 玩家死亡：扣本級 10% 經驗（不降級），在區域出生點滿血復活。
+- 角色每 60 秒自動存檔，離線與關機時也會存檔。
+
+數值公式在 `Combat.java`、`PlayerEntity.java`（等級成長）、`Zone.java`（經驗、回血）。
+
+## 遊戲內容
+
+區域與 NPC 定義在 `server/src/main/resources/world/content.yml`，與程式設定分開。新增 NPC：
+
+1. 在 `npc-templates` 加一個模板（等級、生命、攻防、經驗、速度、是否主動攻擊、重生秒數……）。
+2. 在區域的 `npcs` 放置它：`{ template: wolf, x: 22, z: 20, count: 2 }`。
+3. 前端外觀在 `client/src/game/models.ts`，以模板 id 對應；沒有對應的模型會顯示成紫色方塊。
+
+啟動時會檢查區域引用的模板是否存在，不存在就無法啟動。
 
 ## 設定
 
@@ -87,12 +116,13 @@ cd client && npm run build   # 前端：型別檢查 + 打包
 
 - `theages.jwt.secret`：**正式環境必須用環境變數 `THEAGES_JWT_SECRET` 覆寫**（Base64，至少 32 bytes）。
 - `theages.websocket.allowed-origins`：允許連線的前端網址。
-- `theages.world.zones`：區域定義（名稱、描述、大小、出生點）。
+- `theages.world.tick-rate`：每秒 tick 次數（戰鬥回合固定為 1 秒，不受影響）。
 
 ## 已知限制（之後處理）
 
 - 玩家斷線後立刻重連，可能讀到尚未寫入的舊位置（存檔是非同步的）。同一連線期間重複登入則不受影響，會沿用記憶體中的狀態。
 - 指令與移動沒有頻率限制（rate limit）。
+- 尚未有 PvP、組隊分經驗、技能、裝備與掉寶。
 - 角色名稱等於帳號名稱，一個帳號一個角色。
 - 場景是程式產生的佔位模型，之後換成 glTF。
 - Redis 已放在 `docker-compose.yml`，但伺服器還沒使用。

@@ -24,6 +24,10 @@ export class GameConnection {
     this.send(create(ClientMessageSchema, { payload: { case: "moveTo", value: { target: { x, z } } } }));
   }
 
+  attack(targetId: number): void {
+    this.send(create(ClientMessageSchema, { payload: { case: "attack", value: { targetId } } }));
+  }
+
   command(text: string): void {
     this.send(create(ClientMessageSchema, { payload: { case: "command", value: { text } } }));
   }

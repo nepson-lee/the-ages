@@ -30,6 +30,16 @@ public class PlayerCharacter {
     @Column(name = "pos_z", nullable = false)
     private float posZ;
 
+    @Column(nullable = false)
+    private int level = 1;
+
+    @Column(nullable = false)
+    private int exp;
+
+    /** 0 代表滿血。 */
+    @Column(nullable = false)
+    private int hp;
+
     protected PlayerCharacter() {
     }
 
@@ -65,9 +75,24 @@ public class PlayerCharacter {
         return posZ;
     }
 
-    public void moveTo(String zoneId, float posX, float posZ) {
+    public int getLevel() {
+        return level;
+    }
+
+    public int getExp() {
+        return exp;
+    }
+
+    public int getHp() {
+        return hp;
+    }
+
+    public void update(String zoneId, float posX, float posZ, int level, int exp, int hp) {
         this.zoneId = zoneId;
         this.posX = posX;
         this.posZ = posZ;
+        this.level = level;
+        this.exp = exp;
+        this.hp = hp;
     }
 }

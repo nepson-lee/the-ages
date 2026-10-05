@@ -49,7 +49,8 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         WebSocketPlayerConnection connection = new WebSocketPlayerConnection(session);
         session.getAttributes().put(ZONE_ATTR, zone);
         session.getAttributes().put(CONNECTION_ATTR, connection);
-        zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ()));
+        zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
+            c.getLevel(), c.getExp(), c.getHp()));
         log.info("{} 連線進入 {}", username, zone.definition().id());
     }
 
@@ -70,6 +71,7 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         switch (msg.getPayloadCase()) {
             case MOVE_TO -> zone.enqueue(new ZoneEvent.Move(connection,
                 msg.getMoveTo().getTarget().getX(), msg.getMoveTo().getTarget().getZ()));
+            case ATTACK -> zone.enqueue(new ZoneEvent.Attack(connection, msg.getAttack().getTargetId()));
             case COMMAND -> {
                 String text = msg.getCommand().getText();
                 if (text.length() <= MAX_COMMAND_LENGTH) {

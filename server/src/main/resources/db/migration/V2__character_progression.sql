@@ -1,0 +1,4 @@
+ALTER TABLE player_character ADD COLUMN level INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE player_character ADD COLUMN exp INTEGER NOT NULL DEFAULT 0;
+-- 0 代表「滿血」：新角色與舊資料進入遊戲時會補滿
+ALTER TABLE player_character ADD COLUMN hp INTEGER NOT NULL DEFAULT 0;

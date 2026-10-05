@@ -20,12 +20,18 @@ message ClientMessage {
   oneof payload {
     MoveTo move_to = 1;
     Command command = 2;
+    Attack attack = 3;
   }
 }
 
-// 點擊地面移動：伺服器負責實際位移，客戶端只表達意圖。
+// 點擊地面移動：伺服器負責實際位移，客戶端只表達意圖。移動會中止自己發起的攻擊。
 message MoveTo {
   Vec2 target = 1;
+}
+
+// 點擊 NPC 攻擊，等同 `kill <目標>` 指令。
+message Attack {
+  uint32 target_id = 1;
 }
 
 // MUD 風格文字指令，例如 "say 大家好"、"look"、"who"。
@@ -41,6 +47,8 @@ message ServerMessage {
     WorldSnapshot snapshot = 2;
     EntityLeft entity_left = 3;
     TextOutput text = 4;
+    CombatEvent combat = 5;
+    SelfStats self_stats = 6;
   }
 }
 
@@ -63,6 +71,13 @@ message EntityState {
   string name = 2;
   EntityKind kind = 3;
   Vec2 position = 4;
+  uint32 level = 5;
+  uint32 hp = 6;
+  uint32 max_hp = 7;
+  // 正在攻擊的對象，0 = 沒有。
+  uint32 target_id = 8;
+  // 外觀代碼：NPC 為模板 id（例如 "rabbit"），玩家為 "player"。
+  string model = 9;
 }
 
 // full = true 時為完整快照（剛進入區域），否則只包含本 tick 有變動的實體。
@@ -86,4 +101,24 @@ enum TextChannel {
 message TextOutput {
   TextChannel channel = 1;
   string text = 2;
+}
+
+// 一次攻擊的結果，廣播給區域內所有人（用來顯示傷害數字）。文字敘述只送給當事人。
+message CombatEvent {
+  uint32 attacker_id = 1;
+  uint32 target_id = 2;
+  uint32 damage = 3;
+  bool miss = 4;
+  bool killed = 5;
+}
+
+// 自己的角色數值，變動時才送。
+message SelfStats {
+  uint32 level = 1;
+  uint32 exp = 2;
+  uint32 exp_to_next = 3;
+  uint32 hp = 4;
+  uint32 max_hp = 5;
+  uint32 attack = 6;
+  uint32 defense = 7;
 }

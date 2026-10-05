@@ -1,14 +1,25 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import type { EntityState } from "../gen/theages/v1/game_pb";
+import { EntityKind, type CombatEvent, type EntityState } from "../gen/theages/v1/game_pb";
+import { createModel } from "./models";
 
 const CAMERA_OFFSET = new THREE.Vector3(0, 14, 12);
 /** 位置平滑的速度（越大越快貼齊伺服器位置）。 */
 const SMOOTHING = 12;
+const FLOATER_MS = 1000;
+
+export interface WorldViewHandlers {
+  onGroundClick(x: number, z: number): void;
+  onEntityClick(id: number): void;
+}
 
 interface EntityView {
+  state: EntityState;
   group: THREE.Group;
   target: THREE.Vector3;
+  labelHeight: number;
+  label: HTMLElement;
+  hpFill: HTMLElement;
 }
 
 /**
@@ -24,13 +35,14 @@ export class WorldView {
   private readonly raycaster = new THREE.Raycaster();
   private readonly entities = new Map<number, EntityView>();
   private readonly marker: THREE.Mesh;
+  private readonly targetRing: THREE.Mesh;
   private ground: THREE.Mesh | null = null;
   private zoneRoot: THREE.Group | null = null;
   private selfId = 0;
-  private frame = 0;
+  private cameraPlaced = false;
   private readonly resizeObserver: ResizeObserver;
 
-  constructor(private readonly container: HTMLElement, private readonly onGroundClick: (x: number, z: number) => void) {
+  constructor(private readonly container: HTMLElement, private readonly handlers: WorldViewHandlers) {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.labels.domElement.className = "labels";
@@ -46,13 +58,11 @@ export class WorldView {
     Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40 });
     this.scene.add(sun);
 
-    this.marker = new THREE.Mesh(
-      new THREE.RingGeometry(0.3, 0.45, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0 }),
-    );
-    this.marker.rotation.x = -Math.PI / 2;
-    this.marker.position.y = 0.02;
-    this.scene.add(this.marker);
+    this.marker = groundRing(0.3, 0.45, 0xffe08a);
+    (this.marker.material as THREE.MeshBasicMaterial).opacity = 0;
+    this.targetRing = groundRing(0.55, 0.7, 0xe0453a);
+    this.targetRing.visible = false;
+    this.scene.add(this.marker, this.targetRing);
 
     this.renderer.domElement.addEventListener("pointerdown", (ev) => this.handlePointer(ev));
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -64,7 +74,8 @@ export class WorldView {
   /** 進入區域時建立地形。目前是程式產生的佔位場景，之後換成 glTF 模型。 */
   enterZone(selfId: number, size: number): void {
     this.selfId = selfId;
-    this.entities.forEach((_, id) => this.remove(id));
+    this.cameraPlaced = false;
+    [...this.entities.keys()].forEach((id) => this.remove(id));
     if (this.zoneRoot) {
       this.scene.remove(this.zoneRoot);
     }
@@ -80,15 +91,14 @@ export class WorldView {
 
   upsert(state: EntityState): void {
     const pos = new THREE.Vector3(state.position?.x ?? 0, 0, state.position?.z ?? 0);
-    const existing = this.entities.get(state.id);
-    if (existing) {
-      existing.target.copy(pos);
-      return;
+    let view = this.entities.get(state.id);
+    if (!view) {
+      view = this.create(state, pos);
+      this.entities.set(state.id, view);
     }
-    const group = createAvatar(state.name, state.id === this.selfId);
-    group.position.copy(pos);
-    this.scene.add(group);
-    this.entities.set(state.id, { group, target: pos });
+    view.state = state;
+    view.target.copy(pos);
+    this.updateLabel(view);
   }
 
   remove(id: number): void {
@@ -96,13 +106,31 @@ export class WorldView {
     if (!view) {
       return;
     }
-    view.group.traverse((o) => {
-      if (o instanceof CSS2DObject) {
-        o.element.remove();
-      }
-    });
+    view.label.remove();
     this.scene.remove(view.group);
     this.entities.delete(id);
+  }
+
+  /** 在被攻擊者頭上飄出傷害數字。 */
+  showCombat(event: CombatEvent): void {
+    const target = this.entities.get(event.targetId);
+    if (!target) {
+      return;
+    }
+    const involvesSelf = event.targetId === this.selfId || event.attackerId === this.selfId;
+    // 外層給 CSS2DRenderer 定位（它會改寫 transform），內層才做動畫
+    const el = document.createElement("div");
+    const text = el.appendChild(document.createElement("span"));
+    text.className = `floater ${event.miss ? "miss" : event.targetId === this.selfId ? "hurt" : "hit"}${involvesSelf ? "" : " dim"}`;
+    text.textContent = event.miss ? "閃避" : `-${event.damage}`;
+    // 掛在場景上而不是實體上：目標被打死移除後數字仍會播完
+    const obj = new CSS2DObject(el);
+    obj.position.copy(target.group.position).setY(target.labelHeight + 0.3);
+    this.scene.add(obj);
+    setTimeout(() => {
+      this.scene.remove(obj);
+      el.remove();
+    }, FLOATER_MS);
   }
 
   dispose(): void {
@@ -112,6 +140,33 @@ export class WorldView {
     this.container.replaceChildren();
   }
 
+  private create(state: EntityState, pos: THREE.Vector3): EntityView {
+    const isSelf = state.id === this.selfId;
+    const model = createModel(state.model, isSelf);
+    const group = new THREE.Group().add(model.object);
+    group.position.copy(pos);
+    group.userData.entityId = state.id;
+
+    const label = document.createElement("div");
+    label.className = `name-label ${state.kind === EntityKind.NPC ? "npc" : "player"}${isSelf ? " self" : ""}`;
+    label.innerHTML = `<span class="name"></span><div class="hp"><div class="fill"></div></div>`;
+    const labelObj = new CSS2DObject(label);
+    labelObj.position.set(0, model.labelHeight, 0);
+    group.add(labelObj);
+    this.scene.add(group);
+
+    return { state, group, target: pos.clone(), labelHeight: model.labelHeight, label, hpFill: label.querySelector(".fill")! };
+  }
+
+  private updateLabel(view: EntityView): void {
+    const s = view.state;
+    view.label.querySelector(".name")!.textContent = s.kind === EntityKind.NPC ? `${s.name} Lv${s.level}` : s.name;
+    const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
+    view.hpFill.style.width = `${Math.round(ratio * 100)}%`;
+    // 滿血又不在戰鬥時隱藏血條，畫面比較乾淨
+    view.label.classList.toggle("show-hp", ratio < 1 || s.targetId !== 0);
+  }
+
   private handlePointer(ev: PointerEvent): void {
     if (ev.button !== 0 || !this.ground) {
       return;
@@ -119,11 +174,25 @@ export class WorldView {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+
+    // 先看有沒有點到 NPC，沒有才算點地面
+    const groups = [...this.entities.values()].filter((v) => v.state.kind === EntityKind.NPC).map((v) => v.group);
+    const hitEntity = this.raycaster.intersectObjects(groups, true)[0];
+    if (hitEntity) {
+      let o: THREE.Object3D | null = hitEntity.object;
+      while (o && o.userData.entityId === undefined) {
+        o = o.parent;
+      }
+      if (o) {
+        this.handlers.onEntityClick(o.userData.entityId as number);
+        return;
+      }
+    }
     const hit = this.raycaster.intersectObject(this.ground)[0];
     if (hit) {
       this.marker.position.set(hit.point.x, 0.02, hit.point.z);
       (this.marker.material as THREE.MeshBasicMaterial).opacity = 1;
-      this.onGroundClick(hit.point.x, hit.point.z);
+      this.handlers.onGroundClick(hit.point.x, hit.point.z);
     }
   }
 
@@ -143,20 +212,37 @@ export class WorldView {
     const dt = Math.min(this.timer.getDelta(), 0.1);
     const alpha = 1 - Math.exp(-SMOOTHING * dt);
 
-    for (const { group, target } of this.entities.values()) {
+    for (const view of this.entities.values()) {
+      const { group, target } = view;
       const dx = target.x - group.position.x;
       const dz = target.z - group.position.z;
-      if (dx * dx + dz * dz > 1e-6) {
+      // 移動時面向前進方向；原地戰鬥時面向對手
+      const foe = view.state.targetId ? this.entities.get(view.state.targetId) : undefined;
+      if (dx * dx + dz * dz > 1e-4) {
         group.rotation.y = Math.atan2(dx, dz);
+      } else if (foe) {
+        group.rotation.y = Math.atan2(foe.group.position.x - group.position.x, foe.group.position.z - group.position.z);
       }
-      group.position.lerp(target, alpha);
+      // 距離太遠（重生、瞬移）直接跳過去，不要滑過整張地圖
+      if (dx * dx + dz * dz > 25) {
+        group.position.copy(target);
+      } else {
+        group.position.lerp(target, alpha);
+      }
     }
 
     const self = this.entities.get(this.selfId);
     if (self) {
       const desired = self.group.position.clone().add(CAMERA_OFFSET);
-      this.camera.position.lerp(desired, this.frame++ === 0 ? 1 : alpha * 0.5);
+      this.camera.position.lerp(desired, this.cameraPlaced ? alpha * 0.5 : 1);
+      this.cameraPlaced = true;
       this.camera.lookAt(self.group.position.x, 1, self.group.position.z);
+
+      const foe = self.state.targetId ? this.entities.get(self.state.targetId) : undefined;
+      this.targetRing.visible = foe !== undefined;
+      if (foe) {
+        this.targetRing.position.set(foe.group.position.x, 0.03, foe.group.position.z);
+      }
     }
 
     const markerMat = this.marker.material as THREE.MeshBasicMaterial;
@@ -167,26 +253,14 @@ export class WorldView {
   }
 }
 
-function createAvatar(name: string, isSelf: boolean): THREE.Group {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.35, 0.9, 4, 12),
-    new THREE.MeshStandardMaterial({ color: isSelf ? 0xd9a441 : 0x4a78b5 }),
+function groundRing(inner: number, outer: number, color: number): THREE.Mesh {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(inner, outer, 32),
+    new THREE.MeshBasicMaterial({ color, transparent: true }),
   );
-  body.position.y = 0.8;
-  body.castShadow = true;
-  // 鼻子：讓人看得出面向
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.2), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-  nose.position.set(0, 1.25, 0.35);
-  group.add(body, nose);
-
-  const label = document.createElement("div");
-  label.className = isSelf ? "name-label self" : "name-label";
-  label.textContent = name;
-  const labelObj = new CSS2DObject(label);
-  labelObj.position.set(0, 2, 0);
-  group.add(labelObj);
-  return group;
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  return ring;
 }
 
 /** 佔位用的村莊擺設：中央古井與周圍的樹（固定亂數種子，每位玩家看到的一樣）。 */

@@ -5,13 +5,17 @@ public sealed interface ZoneEvent {
 
     PlayerConnection connection();
 
-    record Join(PlayerConnection connection, long characterId, String name, float x, float z) implements ZoneEvent {
+    record Join(PlayerConnection connection, long characterId, String name, float x, float z,
+                int level, int exp, int hp) implements ZoneEvent {
     }
 
     record Leave(PlayerConnection connection) implements ZoneEvent {
     }
 
     record Move(PlayerConnection connection, float targetX, float targetZ) implements ZoneEvent {
+    }
+
+    record Attack(PlayerConnection connection, int targetId) implements ZoneEvent {
     }
 
     record CommandText(PlayerConnection connection, String text) implements ZoneEvent {

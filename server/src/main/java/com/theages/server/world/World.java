@@ -2,6 +2,7 @@ package com.theages.server.world;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.SplittableRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
@@ -16,11 +17,15 @@ public class World implements SmartLifecycle {
 
     public World(WorldProperties properties, CharacterStore store) {
         this.properties = properties;
-        AtomicInteger entityIds = new AtomicInteger(1);
-        for (ZoneDefinition def : properties.zones()) {
-            zones.put(def.id(), new Zone(def, properties.tickRate(), entityIds::getAndIncrement, store));
-        }
         properties.startingZoneDefinition(); // 啟動時就驗證設定
+        Map<String, NpcTemplate> templates = properties.validatedTemplates();
+        AtomicInteger entityIds = new AtomicInteger(1);
+        SplittableRandom seeds = new SplittableRandom();
+        for (ZoneDefinition def : properties.zones()) {
+            // 每個區域各自一個亂數產生器：只在自己的 tick 執行緒上使用，不需同步
+            zones.put(def.id(), new Zone(def, templates, properties.tickRate(), entityIds::getAndIncrement,
+                store, seeds.split()));
+        }
     }
 
     /** 找不到（例如區域被移除）時回到起始區域。 */

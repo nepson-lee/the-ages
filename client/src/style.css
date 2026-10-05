@@ -7,6 +7,9 @@
   --say: #8fd3ff;
   --room: #c8e6a0;
   --error: #ff8a80;
+  --hp: #5fbf5a;
+  --npc-hp: #d9534f;
+  --exp: #6d8fd9;
   font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   color: var(--text);
 }
@@ -99,24 +102,131 @@ body,
   pointer-events: none;
 }
 .name-label {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   font-size: 13px;
   white-space: nowrap;
 }
-.name-label.self {
+.name-label .name {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.name-label.self .name {
   color: var(--accent);
 }
+.name-label.npc .name {
+  color: #ffd2c4;
+}
+.name-label .hp {
+  display: none;
+  width: 48px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.name-label.show-hp .hp {
+  display: block;
+}
+.name-label .hp .fill {
+  height: 100%;
+  background: var(--hp);
+  transition: width 0.2s;
+}
+.name-label.npc .hp .fill {
+  background: var(--npc-hp);
+}
+
+/* 傷害數字：往上飄並淡出（時間需與 world-view.ts 的 FLOATER_MS 一致） */
+.floater {
+  display: block;
+  font-weight: bold;
+  font-size: 18px;
+  text-shadow: 0 1px 2px #000, 0 0 4px #000;
+  pointer-events: none;
+  animation: float-up 1s ease-out forwards;
+}
+.floater.hit {
+  color: #fff3c4;
+}
+.floater.hurt {
+  color: var(--error);
+}
+.floater.miss {
+  color: var(--muted);
+  font-size: 14px;
+}
+.floater.dim {
+  opacity: 0.6;
+  font-size: 14px;
+}
+@keyframes float-up {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-36px);
+    opacity: 0;
+  }
+}
+
 .hud {
   position: absolute;
   top: 12px;
   left: 16px;
-  padding: 6px 12px;
-  border-radius: 6px;
+  width: 220px;
+  padding: 8px 12px;
+  border-radius: 8px;
   background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hud-title {
+  display: flex;
+  justify-content: space-between;
   font-weight: bold;
   letter-spacing: 0.1em;
+}
+.hud-title .level {
+  color: var(--accent);
+}
+.hud .bar {
+  position: relative;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.hud .bar .fill {
+  height: 100%;
+  transition: width 0.25s;
+}
+.hud .bar.hp .fill {
+  background: var(--hp);
+}
+.hud .bar.exp .fill {
+  background: var(--exp);
+}
+.hud .bar .text {
+  position: absolute;
+  inset: 0;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  text-shadow: 0 1px 1px #000;
+}
+.hud.danger .bar.hp .fill {
+  animation: pulse 0.8s infinite alternate;
+}
+@keyframes pulse {
+  to {
+    opacity: 0.45;
+  }
 }
 .console {
   position: absolute;

@@ -1,0 +1,68 @@
+# 遊戲內容。座標單位為公尺，區域中心為原點。
+theages:
+  world:
+    starting-zone: newbie-village
+
+    # NPC 模板：同一模板可以在多個區域重複放置。
+    #   keywords        kill/look 指令可用的英文代稱（MUD 傳統）
+    #   verb            攻擊時的敘述動詞，例如「野狼撲咬了你」
+    #   aggressive      true = 玩家靠近時主動攻擊
+    #   wander-radius   閒晃時離出生點的最遠距離
+    npc-templates:
+      - id: rabbit
+        name: 野兔
+        keywords: [rabbit]
+        description: 一隻毛茸茸的灰色野兔，耳朵不停地抖動。
+        level: 1
+        max-hp: 18
+        attack: 4
+        defense: 0
+        exp: 12
+        speed: 3.5
+        verb: 咬了
+        aggressive: false
+        respawn-seconds: 15
+        wander-radius: 5
+
+      - id: chicken
+        name: 老母雞
+        keywords: [chicken, hen]
+        description: 一隻肥嘟嘟的老母雞，咕咕咕地在地上啄著米粒。
+        level: 1
+        max-hp: 12
+        attack: 2
+        defense: 0
+        exp: 6
+        speed: 2.5
+        verb: 啄了
+        aggressive: false
+        respawn-seconds: 10
+        wander-radius: 4
+
+      - id: wolf
+        name: 野狼
+        keywords: [wolf]
+        description: 一頭眼神兇狠的灰狼，嘴邊還掛著口水，正虎視眈眈地盯著你。
+        level: 3
+        max-hp: 55
+        attack: 11
+        defense: 3
+        exp: 40
+        speed: 4.5
+        verb: 撲咬了
+        aggressive: true
+        respawn-seconds: 30
+        wander-radius: 6
+
+    zones:
+      - id: newbie-village
+        name: 新手村
+        description: 晨霧籠罩著這座寧靜的小村莊，村中央的古井旁站著幾位剛踏上旅途的冒險者。
+        size: 60
+        spawn: { x: 0, z: 0 }
+        npcs:
+          - { template: chicken, x: -6, z: 6, count: 3 }
+          - { template: rabbit, x: 12, z: -8, count: 4 }
+          - { template: rabbit, x: -14, z: -12, count: 3 }
+          # 村外的狼：主動攻擊，新手要小心
+          - { template: wolf, x: 22, z: 20, count: 2 }

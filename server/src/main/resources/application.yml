@@ -1,6 +1,9 @@
 spring:
   application:
     name: the-ages-server
+  config:
+    # 遊戲內容（區域、NPC）與程式設定分開，企劃改內容不必動這個檔
+    import: classpath:world/content.yml
   datasource:
     url: jdbc:postgresql://localhost:5432/theages
     username: theages
@@ -34,10 +37,3 @@ theages:
       - http://localhost:5173
   world:
     tick-rate: 10
-    starting-zone: newbie-village
-    zones:
-      - id: newbie-village
-        name: 新手村
-        description: 晨霧籠罩著這座寧靜的小村莊，村中央的古井旁站著幾位剛踏上旅途的冒險者。
-        size: 60
-        spawn: { x: 0, z: 0 }

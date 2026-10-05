@@ -3,6 +3,7 @@ import type { ServerMessage } from "./gen/theages/v1/game_pb";
 import { WorldView } from "./game/world-view";
 import { GameConnection } from "./net/connection";
 import { GameConsole } from "./ui/console";
+import { Hud } from "./ui/hud";
 import { showLogin } from "./ui/login";
 
 const TOKEN_KEY = "theages.token";
@@ -18,13 +19,16 @@ function storage(): Storage | null {
 
 function start(token: string): void {
   storage()?.setItem(TOKEN_KEY, token);
-  root.innerHTML = `<div class="game"><div class="viewport"></div><div class="hud"><span class="zone"></span></div></div>`;
-  const zoneLabel = root.querySelector<HTMLElement>(".zone")!;
+  root.innerHTML = `<div class="game"><div class="viewport"></div></div>`;
 
   let connection: GameConnection | null = null;
-  const view = new WorldView(root.querySelector(".viewport")!, (x, z) => connection?.moveTo(x, z));
+  const view = new WorldView(root.querySelector(".viewport")!, {
+    onGroundClick: (x, z) => connection?.moveTo(x, z),
+    onEntityClick: (id) => connection?.attack(id),
+  });
+  const hud = new Hud();
   const gameConsole = new GameConsole((text) => connection?.command(text));
-  root.querySelector(".game")!.append(gameConsole.element);
+  root.querySelector(".game")!.append(hud.element, gameConsole.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -33,14 +37,20 @@ function start(token: string): void {
       switch (p.case) {
         case "welcome":
           view.enterZone(p.value.selfId, p.value.zoneSize);
-          zoneLabel.textContent = p.value.zoneName;
-          gameConsole.print("點擊地面移動；按 Enter 輸入指令。");
+          hud.setZone(p.value.zoneName);
+          gameConsole.print("點擊地面移動、點擊生物攻擊；按 Enter 輸入指令（help 查看全部）。");
           break;
         case "snapshot":
           p.value.entities.forEach((e) => view.upsert(e));
           break;
         case "entityLeft":
           view.remove(p.value.id);
+          break;
+        case "combat":
+          view.showCombat(p.value);
+          break;
+        case "selfStats":
+          hud.setStats(p.value);
           break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);

@@ -1,8 +1,10 @@
 package com.theages.server.world;
 
 import com.theages.protocol.v1.TextChannel;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -20,7 +22,12 @@ final class Commands {
     }
 
     private final Map<String, Entry> handlers = new LinkedHashMap<>();
-    private final Map<String, String> aliases = Map.of("l", "look", "'", "say");
+    private final Map<String, String> aliases = Map.of(
+        "l", "look",
+        "'", "say",
+        "k", "kill",
+        "sc", "score",
+        "hp", "score");
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -28,16 +35,7 @@ final class Commands {
                 .map(e -> String.format("  %-6s %s", e.getKey(), e.getValue().help()))
                 .collect(Collectors.joining("\n", "可用指令：\n", ""))));
 
-        register("look", "觀察四周", (zone, actor, args) -> {
-            ZoneDefinition def = zone.definition();
-            String others = zone.players().stream()
-                .filter(p -> p != actor)
-                .map(PlayerEntity::name)
-                .collect(Collectors.joining("、"));
-            String text = "【" + def.name() + "】\n" + def.description()
-                + (others.isEmpty() ? "" : "\n這裡有：" + others);
-            zone.sendText(actor, TextChannel.TEXT_CHANNEL_ROOM, text);
-        });
+        register("look", "觀察四周，或 look <目標> 觀察某個生物", Commands::look);
 
         register("say", "對附近的人說話：say <內容>", (zone, actor, args) -> {
             if (args.isEmpty()) {
@@ -50,8 +48,25 @@ final class Commands {
 
         register("who", "列出這個區域的玩家", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
             "目前在" + zone.definition().name() + "的玩家（" + zone.players().size() + "）：" + zone.players().stream()
-                .map(PlayerEntity::name)
+                .map(p -> p.name() + "(Lv" + p.level() + ")")
                 .collect(Collectors.joining("、"))));
+
+        register("kill", "攻擊生物：kill <名稱或代稱>，例如 kill rabbit", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想攻擊誰？");
+                return;
+            }
+            findNpc(zone, actor, args).ifPresentOrElse(
+                npc -> zone.startAttack(actor, npc),
+                () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有「" + args + "」。"));
+        });
+
+        register("flee", "停止攻擊", (zone, actor, args) -> zone.stopAttack(actor));
+
+        register("score", "查看自己的狀態", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
+            String.format("【%s】 等級 %d%n生命 %d/%d　攻擊 %d　防禦 %d%n經驗 %d/%d",
+                actor.name(), actor.level(), actor.hp(), actor.maxHp(), actor.attack(), actor.defense(),
+                actor.exp(), PlayerEntity.expToNext(actor.level()))));
     }
 
     private void register(String verb, String help, Handler handler) {
@@ -74,5 +89,45 @@ final class Commands {
             return;
         }
         entry.handler().run(zone, actor, args);
+    }
+
+    private static void look(Zone zone, PlayerEntity actor, String args) {
+        if (!args.isEmpty()) {
+            findNpc(zone, actor, args).ifPresentOrElse(
+                npc -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_ROOM, String.format("%s（Lv%d）%n%s%n生命 %d/%d",
+                    npc.name(), npc.level(), npc.template().description(), npc.hp(), npc.maxHp())),
+                () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有「" + args + "」。"));
+            return;
+        }
+        ZoneDefinition def = zone.definition();
+        String others = zone.players().stream()
+            .filter(p -> p != actor)
+            .map(PlayerEntity::name)
+            .collect(Collectors.joining("、"));
+        // 同名 NPC 合併顯示，例如「野兔(rabbit) ×3」
+        String creatures = zone.entities().stream()
+            .filter(e -> e instanceof NpcEntity)
+            .map(e -> (NpcEntity) e)
+            .collect(Collectors.groupingBy(n -> n.template().id(), LinkedHashMap::new, Collectors.toList()))
+            .values().stream()
+            .map(list -> {
+                NpcTemplate t = list.get(0).template();
+                String keyword = t.keywords().isEmpty() ? "" : "(" + t.keywords().get(0) + ")";
+                return t.name() + keyword + (list.size() > 1 ? " ×" + list.size() : "");
+            })
+            .collect(Collectors.joining("、"));
+        String text = "【" + def.name() + "】\n" + def.description()
+            + (others.isEmpty() ? "" : "\n這裡有：" + others)
+            + (creatures.isEmpty() ? "" : "\n生物：" + creatures);
+        zone.sendText(actor, TextChannel.TEXT_CHANNEL_ROOM, text);
+    }
+
+    /** 依名稱或代稱找最近的活著的 NPC。 */
+    private static Optional<NpcEntity> findNpc(Zone zone, PlayerEntity actor, String query) {
+        return zone.entities().stream()
+            .filter(e -> e instanceof NpcEntity)
+            .map(e -> (NpcEntity) e)
+            .filter(n -> !n.isDead() && n.template().matches(query))
+            .min(Comparator.comparingDouble(actor::distanceTo));
     }
 }
