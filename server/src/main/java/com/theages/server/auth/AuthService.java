@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,8 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final WorldProperties world;
+    /** 帳號不存在時拿來比對的假雜湊，讓回應時間和帳號存在時一樣（避免靠時間差試探帳號）。 */
+    private final String dummyHash;
 
     public AuthService(AccountRepository accounts, PlayerCharacterRepository characters, CharacterItemRepository items,
                        PasswordEncoder passwordEncoder, TokenService tokenService, WorldProperties world) {
@@ -37,6 +40,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.world = world;
+        this.dummyHash = passwordEncoder.encode("not-a-real-password");
     }
 
     /** 建立帳號並同時建立同名角色，出生在起始區域，身上帶著出生物品。 */
@@ -55,10 +59,13 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public String login(String username, String password) {
-        return accounts.findByUsername(username)
-            .filter(a -> passwordEncoder.matches(password, a.getPasswordHash()))
-            .map(a -> tokenService.issue(a.getUsername()))
-            .orElseThrow(() -> new AuthException("帳號或密碼錯誤"));
+        Optional<Account> account = accounts.findByUsername(username);
+        // 帳號不存在也做一次雜湊比對，回應時間才不會洩漏帳號是否存在
+        boolean matches = passwordEncoder.matches(password, account.map(Account::getPasswordHash).orElse(dummyHash));
+        if (account.isEmpty() || !matches) {
+            throw new AuthException("帳號或密碼錯誤");
+        }
+        return tokenService.issue(account.get().getUsername());
     }
 
     /** 出生物品：裝備類若該欄位還空著就直接穿上。 */

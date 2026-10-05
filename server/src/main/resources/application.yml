@@ -35,6 +35,14 @@ theages:
   websocket:
     allowed-origins:
       - http://localhost:5173
+  # 註冊、登入的頻率限制（只存在記憶體；多台伺服器時各自計算）
+  auth-limit:
+    login-per-ip: { burst: 10, per-minute: 10 }
+    register-per-ip: { burst: 5, per-minute: 0.5 }
+    # 同一帳號 15 分鐘內登入失敗 5 次，鎖住 15 分鐘（不存在的帳號也一樣，避免被拿來試探帳號）
+    max-failures: 5
+    failure-window: 15m
+    lockout: 15m
   # 每條連線的訊息頻率限制（權杖桶）：burst = 最多連續幾則，per-second = 長時間平均每秒幾則
   rate-limit:
     move: { burst: 10, per-second: 5 }

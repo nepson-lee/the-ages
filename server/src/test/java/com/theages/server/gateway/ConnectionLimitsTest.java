@@ -2,6 +2,7 @@ package com.theages.server.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.theages.server.common.TokenBucket;
 import com.theages.server.gateway.ConnectionLimits.Kind;
 import com.theages.server.gateway.ConnectionLimits.Verdict;
 import java.time.Duration;
