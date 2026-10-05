@@ -4,6 +4,14 @@ import com.theages.protocol.v1.CombatEvent;
 import com.theages.protocol.v1.EntityLeft;
 import com.theages.protocol.v1.EntityState;
 import com.theages.protocol.v1.InventoryItem;
+import com.theages.protocol.v1.QuestDialog;
+import com.theages.protocol.v1.QuestEntry;
+import com.theages.protocol.v1.QuestMarker;
+import com.theages.protocol.v1.QuestMarkerKind;
+import com.theages.protocol.v1.QuestMarkers;
+import com.theages.protocol.v1.QuestObjective;
+import com.theages.protocol.v1.QuestOffer;
+import com.theages.protocol.v1.QuestOfferStatus;
 import com.theages.protocol.v1.SellQuote;
 import com.theages.protocol.v1.ServerMessage;
 import com.theages.protocol.v1.ShopClosed;
@@ -21,6 +29,8 @@ import com.theages.server.world.item.ItemType;
 import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
 import com.theages.server.world.party.PartyService;
+import com.theages.server.world.quest.QuestDefinition;
+import com.theages.server.world.quest.QuestLog;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -231,7 +241,12 @@ public final class Zone {
             if (p.consumeStatsDirty()) {
                 p.connection().send(ServerMessage.newBuilder().setSelfStats(p.toSelfStats()).build());
             }
-            if (p.inventory().consumeDirty()) {
+            boolean inventoryChanged = p.inventory().consumeDirty();
+            if (inventoryChanged) {
+                p.quests().markDirty(); // 收集目標的進度看背包
+            }
+            syncQuests(p, tick % tickRate == 0);
+            if (inventoryChanged) {
                 p.connection().send(inventoryMessage(p.inventory()));
                 if (p.openShop != null) {
                     sendShop(p, p.openShop); // 收購清單跟著背包變
@@ -279,8 +294,10 @@ public final class Zone {
         } else {
             Inventory inventory = Inventory.fromRecords(join.items(), itemTemplates,
                 id -> log.warn("角色 {} 身上的物品 {} 已不存在於內容檔，略過", join.characterId(), id));
+            QuestLog quests = QuestLog.fromRecords(join.quests(), content.quests(),
+                id -> log.warn("角色 {} 的任務 {} 已不存在於內容檔，略過", join.characterId(), id));
             player = new PlayerEntity(entityIds.getAsInt(), join.characterId(), join.name(), join.connection(),
-                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), join.gold(), inventory);
+                definition.clamp(join.x()), definition.clamp(join.z()), join.level(), join.exp(), join.hp(), join.gold(), inventory, quests);
             byCharacter.put(player.characterId(), player);
             entities.put(player.id(), player);
             broadcastText(TextChannel.TEXT_CHANNEL_ROOM, player.name() + " 走了過來。", player);
@@ -384,11 +401,11 @@ public final class Zone {
 
         CharacterSnapshot s = p.snapshot(target.definition().id());
         CharacterSnapshot arrived = new CharacterSnapshot(s.characterId(), s.zoneId(), exit.toX(), exit.toZ(),
-            s.level(), s.exp(), s.hp(), s.gold(), s.items());
+            s.level(), s.exp(), s.hp(), s.gold(), s.items(), s.quests());
         store.saveAsync(arrived); // 換區當下就存檔：伺服器若在途中當掉，玩家會出現在目的地
         // 先排入 Join 再切換路由：之後的訊息都會排在 Join 後面
         target.enqueue(new ZoneEvent.Join(p.connection(), s.characterId(), p.name(), exit.toX(), exit.toZ(),
-            s.level(), s.exp(), s.hp(), s.gold(), s.items()));
+            s.level(), s.exp(), s.hp(), s.gold(), s.items(), s.quests()));
         p.connection().attachZone(target);
     }
 
@@ -453,6 +470,10 @@ public final class Zone {
             sendText(player, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "笑著搖搖頭：「年輕人，別在店門口動手動腳的。」");
             return;
         }
+        if (npc.template().isPeaceful()) {
+            sendText(player, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "皺起眉頭：「有話好好說，動什麼手？」");
+            return;
+        }
         if (player.combatTarget() == target) {
             return;
         }
@@ -504,6 +525,7 @@ public final class Zone {
         NpcTemplate t = npc.template();
         int gold = t.goldMax() <= 0 ? 0 : t.goldMin() + random.nextInt(t.goldMax() - t.goldMin() + 1);
         broadcastText(TextChannel.TEXT_CHANNEL_ROOM, killer.name() + " 殺死了" + npc.name() + "。", killer);
+        creditKill(group, npc);
 
         if (group.size() == 1) {
             int exp = killExp(npc, killer);
@@ -584,6 +606,301 @@ public final class Zone {
         entities.put(npc.id(), npc);
     }
 
+    // ===== 對話與任務 =====
+
+    /** 找 NPC 說話；太遠就先走過去。商人會順便打開商店。 */
+    void talk(PlayerEntity p, NpcEntity npc) {
+        if (!npc.template().isPeaceful()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, npc.name() + "只會對你齜牙咧嘴。");
+        } else if (p.combatTarget() != null) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你正在戰鬥，沒空聊天！");
+        } else if (p.distanceTo(npc) <= TRADE_RANGE) {
+            p.pendingShop = null;
+            List<QuestDefinition> quests = content.questsAt(npc.template());
+            if (!quests.isEmpty() || !npc.template().isMerchant()) {
+                p.connection().send(dialogMessage(p, npc));
+                String greeting = npc.template().greeting();
+                sendText(p, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "說：「"
+                    + (greeting == null ? "你好啊，年輕人。" : greeting) + "」");
+            }
+            if (npc.template().isMerchant()) {
+                openShop(p, npc);
+            }
+        } else {
+            p.pendingPickup = null;
+            p.pendingShop = npc;
+            p.pendingTalk = true;
+            p.moveToward(npc.x(), npc.z());
+        }
+    }
+
+    /** 交談距離內的和平 NPC。 */
+    private List<NpcEntity> peacefulNear(PlayerEntity p) {
+        return entities.values().stream()
+            .filter(e -> e instanceof NpcEntity n && n.template().isPeaceful() && p.distanceTo(n) <= TRADE_RANGE)
+            .map(e -> (NpcEntity) e)
+            .toList();
+    }
+
+    void acceptQuest(PlayerEntity p, String query) {
+        for (NpcEntity npc : peacefulNear(p)) {
+            for (QuestDefinition q : content.questsAt(npc.template())) {
+                if (!q.giver().equals(npc.template().id()) || !q.matches(query)) {
+                    continue;
+                }
+                Optional<String> why = p.quests().whyCannotAccept(q, p.level());
+                if (why.isPresent()) {
+                    sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, why.get());
+                    return;
+                }
+                p.quests().accept(q);
+                sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "【任務】你接下了「" + q.name() + "」。");
+                if (q.acceptText() != null) {
+                    sendText(p, TextChannel.TEXT_CHANNEL_SAY, npc.name() + "說：「" + q.acceptText() + "」");
+                }
+                p.connection().send(dialogMessage(p, npc));
+                return;
+            }
+        }
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "附近沒有人給「" + query + "」這個任務。");
+    }
+
+    void completeQuest(PlayerEntity p, String query) {
+        Optional<QuestLog.ActiveQuest> found = findActiveQuest(p, query);
+        if (found.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你沒有進行中的任務「" + query + "」。");
+            return;
+        }
+        QuestDefinition q = found.get().definition();
+        Optional<NpcEntity> npc = peacefulNear(p).stream()
+            .filter(n -> n.template().id().equals(q.turnIn()))
+            .findFirst();
+        if (npc.isEmpty()) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "「" + q.name() + "」要交給" + npcName(q.turnIn()) + "。");
+            return;
+        }
+        if (!p.quests().isReady(found.get(), p.inventory())) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "「" + q.name() + "」還沒完成。");
+            return;
+        }
+        if (!rewardsFit(p, q)) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你身上的東西太多了，拿不下任務獎勵。");
+            return;
+        }
+        for (QuestDefinition.Objective o : q.objectives()) {
+            if (!o.isKill()) {
+                p.inventory().removeCount(o.target(), o.required());
+            }
+        }
+        p.quests().complete(q.id());
+        sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "【任務】你完成了「" + q.name() + "」！獲得：" + rewardsText(q) + "。");
+        if (q.completeText() != null) {
+            sendText(p, TextChannel.TEXT_CHANNEL_SAY, npc.get().name() + "說：「" + q.completeText() + "」");
+        }
+        QuestDefinition.Rewards r = q.rewards();
+        for (QuestDefinition.ItemReward item : r.items()) {
+            p.inventory().add(itemTemplates.get(item.item()), item.countOrOne());
+        }
+        if (r.gold() > 0) {
+            p.addGold(r.gold());
+        }
+        if (r.exp() > 0) {
+            announceLevelUp(p, p.gainExp(r.exp()));
+        }
+        p.connection().send(dialogMessage(p, npc.get()));
+    }
+
+    void abandonQuest(PlayerEntity p, String query) {
+        findActiveQuest(p, query).ifPresentOrElse(a -> {
+            p.quests().abandon(a.definition().id());
+            sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "【任務】你放棄了「" + a.definition().name() + "」。");
+        }, () -> sendText(p, TextChannel.TEXT_CHANNEL_SYSTEM, "你沒有進行中的任務「" + query + "」。"));
+    }
+
+    /** 給 quest 指令列出任務日誌。 */
+    String describeQuests(PlayerEntity p) {
+        if (p.quests().active().isEmpty()) {
+            return "你目前沒有進行中的任務。（找頭上有「!」的 NPC 說話：talk <名字>）";
+        }
+        StringBuilder sb = new StringBuilder("任務日誌：");
+        for (QuestLog.ActiveQuest a : p.quests().active()) {
+            QuestDefinition q = a.definition();
+            boolean ready = p.quests().isReady(a, p.inventory());
+            sb.append("\n  【").append(q.name()).append("】").append(ready ? "（完成！回報給" + npcName(q.turnIn()) + "）" : "");
+            for (int i = 0; i < q.objectives().size(); i++) {
+                sb.append("\n    ").append(objectiveText(q.objectives().get(i)))
+                    .append(" ").append(p.quests().progress(a, i, p.inventory())).append("/").append(q.objectives().get(i).required());
+            }
+            if (q.objectives().isEmpty()) {
+                sb.append("\n    去找").append(npcName(q.turnIn()));
+            }
+        }
+        return sb.toString();
+    }
+
+    private Optional<QuestLog.ActiveQuest> findActiveQuest(PlayerEntity p, String query) {
+        return p.quests().active().stream().filter(a -> a.definition().matches(query)).findFirst();
+    }
+
+    /** 擊殺時替參與分配的每個人累計任務進度。 */
+    private void creditKill(List<PlayerEntity> group, NpcEntity npc) {
+        for (PlayerEntity m : group) {
+            if (!m.quests().onKill(npc.template().id())) {
+                continue;
+            }
+            for (QuestLog.ActiveQuest a : m.quests().active()) {
+                List<QuestDefinition.Objective> objectives = a.definition().objectives();
+                for (int i = 0; i < objectives.size(); i++) {
+                    QuestDefinition.Objective o = objectives.get(i);
+                    if (o.isKill() && o.target().equals(npc.template().id())) {
+                        sendText(m, TextChannel.TEXT_CHANNEL_SYSTEM, "【任務】" + a.definition().name() + "："
+                            + objectiveText(o) + " " + m.quests().progress(a, i, m.inventory()) + "/" + o.required());
+                    }
+                }
+            }
+        }
+    }
+
+    /** 模擬交任務後的背包，確認獎勵放得下。 */
+    private boolean rewardsFit(PlayerEntity p, QuestDefinition q) {
+        Inventory copy = Inventory.fromRecords(p.inventory().toRecords(), itemTemplates, id -> { });
+        for (QuestDefinition.Objective o : q.objectives()) {
+            if (!o.isKill()) {
+                copy.removeCount(o.target(), o.required());
+            }
+        }
+        for (QuestDefinition.ItemReward item : q.rewards().items()) {
+            ItemTemplate t = itemTemplates.get(item.item());
+            if (!copy.canAdd(t, item.countOrOne())) {
+                return false;
+            }
+            copy.add(t, item.countOrOne());
+        }
+        return true;
+    }
+
+    private String npcName(String templateId) {
+        NpcTemplate t = content.npcs().get(templateId);
+        return t == null ? templateId : t.name();
+    }
+
+    private String objectiveText(QuestDefinition.Objective o) {
+        return o.isKill() ? "擊殺" + npcName(o.target()) : "收集" + itemTemplates.get(o.target()).name();
+    }
+
+    private String rewardsText(QuestDefinition q) {
+        QuestDefinition.Rewards r = q.rewards();
+        List<String> parts = new ArrayList<>();
+        if (r.exp() > 0) {
+            parts.add("經驗 " + r.exp());
+        }
+        if (r.gold() > 0) {
+            parts.add("銅錢 " + r.gold());
+        }
+        for (QuestDefinition.ItemReward item : r.items()) {
+            parts.add(itemTemplates.get(item.item()).name() + (item.countOrOne() > 1 ? " ×" + item.countOrOne() : ""));
+        }
+        return parts.isEmpty() ? "（無）" : String.join("、", parts);
+    }
+
+    private ServerMessage questLogMessage(PlayerEntity p) {
+        com.theages.protocol.v1.QuestLog.Builder msg = com.theages.protocol.v1.QuestLog.newBuilder();
+        for (QuestLog.ActiveQuest a : p.quests().active()) {
+            QuestDefinition q = a.definition();
+            QuestEntry.Builder entry = QuestEntry.newBuilder()
+                .setId(q.id())
+                .setName(q.name())
+                .setDescription(q.description() == null ? "" : q.description())
+                .setReady(p.quests().isReady(a, p.inventory()))
+                .setTurnInName(npcName(q.turnIn()))
+                .setRewards(rewardsText(q));
+            for (int i = 0; i < q.objectives().size(); i++) {
+                QuestDefinition.Objective o = q.objectives().get(i);
+                entry.addObjectives(QuestObjective.newBuilder()
+                    .setText(objectiveText(o))
+                    .setCurrent(p.quests().progress(a, i, p.inventory()))
+                    .setRequired(o.required()));
+            }
+            msg.addQuests(entry);
+        }
+        return ServerMessage.newBuilder().setQuestLog(msg).build();
+    }
+
+    private ServerMessage dialogMessage(PlayerEntity p, NpcEntity npc) {
+        QuestDialog.Builder dialog = QuestDialog.newBuilder()
+            .setNpcId(npc.id())
+            .setNpcName(npc.name())
+            .setGreeting(npc.template().greeting() == null ? "" : npc.template().greeting());
+        String npcId = npc.template().id();
+        for (QuestDefinition q : content.questsAt(npc.template())) {
+            Optional<QuestLog.ActiveQuest> active = p.quests().active(q.id());
+            QuestOfferStatus status;
+            if (active.isPresent()) {
+                boolean here = q.turnIn().equals(npcId);
+                status = here && p.quests().isReady(active.get(), p.inventory())
+                    ? QuestOfferStatus.QUEST_OFFER_STATUS_READY : QuestOfferStatus.QUEST_OFFER_STATUS_IN_PROGRESS;
+            } else if (q.giver().equals(npcId) && p.quests().isAvailable(q, p.level())) {
+                status = QuestOfferStatus.QUEST_OFFER_STATUS_AVAILABLE;
+            } else {
+                continue; // 已完成、等級不夠、前置未完成：不顯示
+            }
+            dialog.addOffers(QuestOffer.newBuilder()
+                .setId(q.id())
+                .setName(q.name())
+                .setDescription(q.description() == null ? "" : q.description())
+                .setStatus(status)
+                .setObjectives(q.objectives().isEmpty() ? "去找" + npcName(q.turnIn())
+                    : q.objectives().stream().map(o -> objectiveText(o) + " ×" + o.required())
+                        .collect(java.util.stream.Collectors.joining("、")))
+                .setRewards(rewardsText(q)));
+        }
+        return ServerMessage.newBuilder().setQuestDialog(dialog).build();
+    }
+
+    /** 這位玩家看到的 NPC 頭頂標記：可以交（?）優先於可以接（!）。 */
+    private List<QuestMarker> markersFor(PlayerEntity p) {
+        List<QuestMarker> markers = new ArrayList<>();
+        for (Entity e : entities.values()) {
+            if (!(e instanceof NpcEntity npc) || !npc.template().isPeaceful()) {
+                continue;
+            }
+            String npcId = npc.template().id();
+            boolean ready = false;
+            boolean available = false;
+            for (QuestDefinition q : content.questsAt(npc.template())) {
+                Optional<QuestLog.ActiveQuest> active = p.quests().active(q.id());
+                if (active.isPresent()) {
+                    ready |= q.turnIn().equals(npcId) && p.quests().isReady(active.get(), p.inventory());
+                } else {
+                    available |= q.giver().equals(npcId) && p.quests().isAvailable(q, p.level());
+                }
+            }
+            if (ready || available) {
+                markers.add(QuestMarker.newBuilder()
+                    .setEntityId(npc.id())
+                    .setKind(ready ? QuestMarkerKind.QUEST_MARKER_KIND_READY : QuestMarkerKind.QUEST_MARKER_KIND_AVAILABLE)
+                    .build());
+            }
+        }
+        return markers;
+    }
+
+    private void syncQuests(PlayerEntity p, boolean force) {
+        if (p.quests().consumeDirty()) {
+            p.connection().send(questLogMessage(p));
+            force = true;
+        }
+        if (!force) {
+            return;
+        }
+        List<QuestMarker> markers = markersFor(p);
+        if (!markers.equals(p.lastQuestMarkers)) {
+            p.lastQuestMarkers = markers;
+            p.connection().send(ServerMessage.newBuilder()
+                .setQuestMarkers(QuestMarkers.newBuilder().addAllMarkers(markers)).build());
+        }
+    }
+
     // ===== 商店 =====
 
     /** 與商人交易的距離（公尺）。 */
@@ -622,6 +939,7 @@ public final class Zone {
         } else {
             p.pendingPickup = null;
             p.pendingShop = merchant;
+            p.pendingTalk = false;
             p.moveToward(merchant.x(), merchant.z());
         }
     }
@@ -707,7 +1025,11 @@ public final class Zone {
                     p.pendingShop = null;
                 } else if (p.distanceTo(pending) <= TRADE_RANGE) {
                     p.stop();
-                    openShop(p, pending);
+                    if (p.pendingTalk) {
+                        talk(p, pending);
+                    } else {
+                        openShop(p, pending);
+                    }
                 } else {
                     p.moveToward(pending.x(), pending.z());
                 }

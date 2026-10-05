@@ -3,6 +3,8 @@ package com.theages.server.world;
 import com.theages.protocol.v1.EntityKind;
 import com.theages.protocol.v1.SelfStats;
 import com.theages.server.world.item.Inventory;
+import com.theages.server.world.quest.QuestLog;
+import java.util.List;
 
 /** 區域內的玩家。只能在所屬區域的 tick 執行緒存取。 */
 public final class PlayerEntity extends Entity {
@@ -12,6 +14,7 @@ public final class PlayerEntity extends Entity {
 
     private final long characterId;
     private final Inventory inventory;
+    private final QuestLog quests;
     private PlayerConnection connection;
     private int exp;
     private int gold;
@@ -24,24 +27,29 @@ public final class PlayerEntity extends Entity {
     NpcEntity openShop;
     /** 正在走過去的出口；null = 沒有。 */
     Portal pendingExit;
+    /** 走到 pendingShop 之後要做的事：true = 對話（任務），false = 打開商店。 */
+    boolean pendingTalk;
+    /** 上一次送出的任務標記，沒變就不重送。 */
+    List<com.theages.protocol.v1.QuestMarker> lastQuestMarkers = List.of();
     /** 下一次可以使用消耗品的 tick。 */
     long nextUseTick;
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
-                 int level, int exp, int hp, int gold, Inventory inventory) {
+                 int level, int exp, int hp, int gold, Inventory inventory, QuestLog quests) {
         super(id, name, x, z);
         this.characterId = characterId;
         this.connection = connection;
         this.exp = exp;
         this.gold = Math.max(0, gold);
         this.inventory = inventory;
+        this.quests = quests;
         applyLevel(Math.max(1, level));
         setHp(hp <= 0 ? maxHp : hp);
     }
 
     PlayerEntity(int id, long characterId, String name, PlayerConnection connection, float x, float z,
                  int level, int exp, int hp) {
-        this(id, characterId, name, connection, x, z, level, exp, hp, 0, new Inventory());
+        this(id, characterId, name, connection, x, z, level, exp, hp, 0, new Inventory(), new QuestLog());
     }
 
     // ===== 等級公式（之後可移到內容檔） =====
@@ -129,7 +137,8 @@ public final class PlayerEntity extends Entity {
     }
 
     CharacterSnapshot snapshot(String zoneId) {
-        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), gold, inventory.toRecords());
+        return new CharacterSnapshot(characterId, zoneId, x(), z(), level, exp, hp(), gold, inventory.toRecords(),
+            quests.toRecords());
     }
 
     void replaceConnection(PlayerConnection newConnection) {
@@ -159,6 +168,10 @@ public final class PlayerEntity extends Entity {
 
     public Inventory inventory() {
         return inventory;
+    }
+
+    public QuestLog quests() {
+        return quests;
     }
 
     public PlayerConnection connection() {

@@ -22,13 +22,15 @@ public class CharacterPersistence implements CharacterStore {
 
     private final PlayerCharacterRepository characters;
     private final CharacterItemRepository items;
+    private final CharacterQuestRepository quests;
     private final TransactionTemplate tx;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "character-persistence"));
 
     public CharacterPersistence(PlayerCharacterRepository characters, CharacterItemRepository items,
-                                TransactionTemplate tx) {
+                                CharacterQuestRepository quests, TransactionTemplate tx) {
         this.characters = characters;
         this.items = items;
+        this.quests = quests;
         this.tx = tx;
     }
 
@@ -36,10 +38,11 @@ public class CharacterPersistence implements CharacterStore {
     public void saveAsync(CharacterSnapshot s) {
         executor.execute(() -> {
             try {
-                // 角色與物品在同一個交易內寫入，避免只存到一半
+                // 角色、物品、任務在同一個交易內寫入，避免只存到一半
                 tx.executeWithoutResult(status -> characters.findById(s.characterId()).ifPresent(c -> {
                     c.update(s.zoneId(), s.x(), s.z(), s.level(), s.exp(), s.hp(), s.gold());
                     items.replaceAll(c.getId(), s.items());
+                    quests.replaceAll(c.getId(), s.quests());
                 }));
             } catch (RuntimeException e) {
                 log.error("角色 {} 存檔失敗", s.characterId(), e);

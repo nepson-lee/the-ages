@@ -9,7 +9,9 @@ import java.util.Locale;
  *
  * @param goldMin 擊殺後搜出的銅錢下限
  * @param goldMax 擊殺後搜出的銅錢上限
- * @param shop    商店 id；有值的 NPC 是商人，不能攻擊
+ * @param shop     商店 id；有值的 NPC 是商人，不能攻擊
+ * @param friendly 友善 NPC（例如發任務的村長）：不能攻擊、不會主動攻擊
+ * @param greeting 和玩家對話時說的話
  */
 public record NpcTemplate(
     String id,
@@ -29,7 +31,9 @@ public record NpcTemplate(
     List<LootEntry> loot,
     int goldMin,
     int goldMax,
-    String shop) {
+    String shop,
+    boolean friendly,
+    String greeting) {
 
     public NpcTemplate {
         keywords = keywords == null ? List.of() : List.copyOf(keywords);
@@ -38,6 +42,11 @@ public record NpcTemplate(
 
     public boolean isMerchant() {
         return shop != null;
+    }
+
+    /** 商人與友善 NPC：不能攻擊，點擊是對話。 */
+    public boolean isPeaceful() {
+        return friendly || isMerchant();
     }
 
     /** 中文名稱或任一英文代稱相符（不分大小寫）。 */

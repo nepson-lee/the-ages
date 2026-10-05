@@ -68,7 +68,8 @@ class GameFlowIntegrationTest {
         assertThat(full.getSnapshot().getFull()).isTrue();
         assertThat(full.getSnapshot().getEntitiesList())
             .as("content.yml 的 NPC 已生成")
-            .anyMatch(e -> e.getKind() == com.theages.protocol.v1.EntityKind.ENTITY_KIND_NPC && e.getModel().equals("wolf"));
+            .anyMatch(e -> e.getKind() == com.theages.protocol.v1.EntityKind.ENTITY_KIND_NPC && e.getModel().equals("wolf"))
+            .anyMatch(e -> e.getKind() == com.theages.protocol.v1.EntityKind.ENTITY_KIND_FRIENDLY && e.getModel().equals("village-elder"));
 
         ServerMessage inventory = null;
         ServerMessage stats = null;

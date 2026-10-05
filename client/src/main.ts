@@ -6,6 +6,7 @@ import { GameConsole } from "./ui/console";
 import { Hud } from "./ui/hud";
 import { InventoryPanel } from "./ui/inventory";
 import { PartyPanel } from "./ui/party";
+import { QuestDialogPanel, QuestTracker } from "./ui/quests";
 import { ShopPanel } from "./ui/shop";
 import { showLogin } from "./ui/login";
 
@@ -29,7 +30,7 @@ function start(token: string): void {
     onGroundClick: (x, z) => connection?.moveTo(x, z),
     onEntityClick: (id) => connection?.attack(id),
     onItemClick: (id) => connection?.command(`get #${id}`),
-    onMerchantClick: (id) => connection?.command(`list #${id}`),
+    onTalkClick: (id) => connection?.command(`talk #${id}`),
     onPortalClick: (id) => connection?.command(`go #${id}`),
   });
   const hud = new Hud();
@@ -38,10 +39,12 @@ function start(token: string): void {
   hud.onInventoryClick(() => inventory.toggle());
   const shop = new ShopPanel((command) => connection?.command(command));
   const party = new PartyPanel();
+  const questDialog = new QuestDialogPanel((command) => connection?.command(command));
+  const questTracker = new QuestTracker();
   const leftColumn = document.createElement("div");
   leftColumn.className = "left-column";
-  leftColumn.append(hud.element, party.element);
-  root.querySelector(".game")!.append(leftColumn, gameConsole.element, inventory.element, shop.element);
+  leftColumn.append(hud.element, party.element, questTracker.element);
+  root.querySelector(".game")!.append(leftColumn, gameConsole.element, inventory.element, shop.element, questDialog.element);
   gameConsole.print("正在連線到時空之門……");
 
   connection = new GameConnection(token, {
@@ -51,6 +54,7 @@ function start(token: string): void {
         case "welcome":
           view.enterZone(p.value.selfId, p.value.zoneId, p.value.zoneSize);
           shop.close();
+          questDialog.close();
           hud.setZone(p.value.zoneName);
           party.setZone(p.value.zoneName);
           gameConsole.print("點擊地面移動、點擊生物攻擊；按 Enter 輸入指令（help 查看全部，invite <名字> 組隊）。");
@@ -81,6 +85,15 @@ function start(token: string): void {
         case "party":
           party.update(p.value);
           break;
+        case "questLog":
+          questTracker.update(p.value);
+          break;
+        case "questDialog":
+          questDialog.show(p.value);
+          break;
+        case "questMarkers":
+          view.setQuestMarkers(p.value);
+          break;
         case "text":
           gameConsole.print(p.value.text, p.value.channel);
           break;
@@ -90,6 +103,7 @@ function start(token: string): void {
       activeConsole = null;
       activeInventory = null;
       activeShop = null;
+      activeQuestDialog = null;
       view.dispose();
       storage()?.removeItem(TOKEN_KEY);
       showLogin(root, start, reason);
@@ -99,11 +113,13 @@ function start(token: string): void {
   activeConsole = gameConsole;
   activeInventory = inventory;
   activeShop = shop;
+  activeQuestDialog = questDialog;
 }
 
 let activeConsole: GameConsole | null = null;
 let activeInventory: InventoryPanel | null = null;
 let activeShop: ShopPanel | null = null;
+let activeQuestDialog: QuestDialogPanel | null = null;
 // 指令列有焦點時按鍵不會傳到這裡（console.ts 會 stopPropagation）
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") {
@@ -113,6 +129,7 @@ window.addEventListener("keydown", (ev) => {
   } else if (ev.key === "Escape") {
     activeInventory?.toggle(false);
     activeShop?.close();
+    activeQuestDialog?.close();
   }
 });
 

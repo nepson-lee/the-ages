@@ -53,6 +53,9 @@ message ServerMessage {
     ShopView shop = 8;
     ShopClosed shop_closed = 9;
     PartyView party = 10;
+    QuestLog quest_log = 11;
+    QuestDialog quest_dialog = 12;
+    QuestMarkers quest_markers = 13;
   }
 }
 
@@ -75,6 +78,8 @@ enum EntityKind {
   ENTITY_KIND_MERCHANT = 4;
   // 區域出口：model 為 "portal"；點擊後送出 `go #<id>` 指令前往。
   ENTITY_KIND_PORTAL = 5;
+  // 友善 NPC（例如發任務的村長）：不能攻擊；點擊後送出 `talk #<id>`。商人點擊後也送 talk。
+  ENTITY_KIND_FRIENDLY = 6;
 }
 
 message EntityState {
@@ -223,4 +228,72 @@ message PartyMember {
   bool leader = 6;
   // 自己，方便客戶端標示。
   bool self = 7;
+}
+
+// ===== 任務 =====
+
+// 自己進行中的任務，變動時整份重送。
+message QuestLog {
+  repeated QuestEntry quests = 1;
+}
+
+message QuestEntry {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated QuestObjective objectives = 4;
+  // 所有目標都完成，可以回報了。
+  bool ready = 5;
+  // 要找誰交任務。
+  string turn_in_name = 6;
+  string rewards = 7;
+}
+
+message QuestObjective {
+  string text = 1;
+  uint32 current = 2;
+  uint32 required = 3;
+}
+
+// 和 NPC 對話時送出：這位 NPC 能給的、或能交給他的任務。
+// 按鈕指令：`quest accept <id>`、`quest complete <id>`、`quest abandon <id>`。
+message QuestDialog {
+  uint32 npc_id = 1;
+  string npc_name = 2;
+  string greeting = 3;
+  repeated QuestOffer offers = 4;
+}
+
+enum QuestOfferStatus {
+  QUEST_OFFER_STATUS_UNSPECIFIED = 0;
+  QUEST_OFFER_STATUS_AVAILABLE = 1;
+  QUEST_OFFER_STATUS_IN_PROGRESS = 2;
+  QUEST_OFFER_STATUS_READY = 3;
+}
+
+message QuestOffer {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  QuestOfferStatus status = 4;
+  string objectives = 5;
+  string rewards = 6;
+}
+
+// NPC 頭上的任務標記，每位玩家各自不同（依自己的任務進度），變動時整份重送。
+message QuestMarkers {
+  repeated QuestMarker markers = 1;
+}
+
+enum QuestMarkerKind {
+  QUEST_MARKER_KIND_UNSPECIFIED = 0;
+  // 「!」：有任務可以接。
+  QUEST_MARKER_KIND_AVAILABLE = 1;
+  // 「?」：有任務可以交。
+  QUEST_MARKER_KIND_READY = 2;
+}
+
+message QuestMarker {
+  uint32 entity_id = 1;
+  QuestMarkerKind kind = 2;
 }

@@ -3,6 +3,7 @@ package com.theages.server.world;
 import com.theages.server.world.item.ItemTemplate;
 import com.theages.server.world.item.LootEntry;
 import com.theages.server.world.item.ShopDefinition;
+import com.theages.server.world.quest.QuestDefinition;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -12,13 +13,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("theages.world")
 public record WorldProperties(int tickRate, String startingZone, List<String> startingItems, int startingGold,
                              List<ItemTemplate> itemTemplates, List<ShopDefinition> shops,
-                             List<NpcTemplate> npcTemplates, List<ZoneDefinition> zones) {
+                             List<NpcTemplate> npcTemplates, List<QuestDefinition> quests,
+                             List<ZoneDefinition> zones) {
 
     public WorldProperties {
         startingItems = startingItems == null ? List.of() : List.copyOf(startingItems);
         itemTemplates = itemTemplates == null ? List.of() : List.copyOf(itemTemplates);
         shops = shops == null ? List.of() : List.copyOf(shops);
         npcTemplates = npcTemplates == null ? List.of() : List.copyOf(npcTemplates);
+        quests = quests == null ? List.of() : List.copyOf(quests);
     }
 
     public ZoneDefinition startingZoneDefinition() {
@@ -66,7 +69,25 @@ public record WorldProperties(int tickRate, String startingZone, List<String> st
                     "區域 " + zone.id() + " 的出口「" + exit.name() + "」的抵達點在 " + to.id() + " 範圍外");
             }
         }
-        return new WorldContent(npcs, items, shopsById);
+        Map<String, QuestDefinition> questsById = index(quests, QuestDefinition::id);
+        for (QuestDefinition q : quests) {
+            String where = "任務 " + q.id();
+            for (String npc : List.of(q.giver(), q.turnIn())) {
+                require(npcs.containsKey(npc), where + " 引用了不存在的 NPC：" + npc);
+                require(npcs.get(npc).isPeaceful(), where + " 的 NPC " + npc + " 必須是商人或 friendly（否則會被打死）");
+            }
+            for (String id : q.requires()) {
+                require(questsById.containsKey(id), where + " 的前置任務不存在：" + id);
+            }
+            for (QuestDefinition.Objective o : q.objectives()) {
+                require(o.isKill() ? npcs.containsKey(o.target()) : items.containsKey(o.target()),
+                    where + " 的目標引用了不存在的" + (o.isKill() ? " NPC：" : "物品：") + o.target());
+            }
+            for (QuestDefinition.ItemReward r : q.rewards().items()) {
+                require(items.containsKey(r.item()), where + " 的獎勵物品不存在：" + r.item());
+            }
+        }
+        return new WorldContent(npcs, items, shopsById, questsById);
     }
 
     private static <T> Map<String, T> index(List<T> list, Function<T, String> id) {

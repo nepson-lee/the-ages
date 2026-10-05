@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { EntityKind, type CombatEvent, type EntityState } from "../gen/theages/v1/game_pb";
+import { EntityKind, QuestMarkerKind, type CombatEvent, type EntityState, type QuestMarkers } from "../gen/theages/v1/game_pb";
 import { createItemModel, createModel, createPortalModel } from "./models";
 import { themeFor } from "./zones";
 
@@ -13,7 +13,8 @@ export interface WorldViewHandlers {
   onGroundClick(x: number, z: number): void;
   onEntityClick(id: number): void;
   onItemClick(id: number): void;
-  onMerchantClick(id: number): void;
+  /** 商人與友善 NPC：對話（任務、商店）。 */
+  onTalkClick(id: number): void;
   onPortalClick(id: number): void;
 }
 
@@ -44,6 +45,8 @@ export class WorldView {
   private ground: THREE.Mesh | null = null;
   private zoneRoot: THREE.Group | null = null;
   private selfId = 0;
+  /** 任務標記（依自己的任務進度），entity id → 種類。 */
+  private questMarkers = new Map<number, QuestMarkerKind>();
   private cameraPlaced = false;
   private readonly resizeObserver: ResizeObserver;
 
@@ -78,6 +81,7 @@ export class WorldView {
 
   /** 進入區域（包括換區）時清空場景，依區域主題重建地形。 */
   enterZone(selfId: number, zoneId: string, size: number): void {
+    this.questMarkers.clear();
     const theme = themeFor(zoneId);
     (this.scene.background as THREE.Color).setHex(theme.sky);
     this.scene.fog = new THREE.Fog(theme.sky, theme.fogNear, theme.fogFar);
@@ -120,6 +124,20 @@ export class WorldView {
     this.entities.delete(id);
   }
 
+  setQuestMarkers(markers: QuestMarkers): void {
+    this.questMarkers = new Map(markers.markers.map((m) => [m.entityId, m.kind]));
+    for (const view of this.entities.values()) {
+      this.updateQuestMark(view);
+    }
+  }
+
+  private updateQuestMark(view: EntityView): void {
+    const kind = this.questMarkers.get(view.state.id);
+    const mark = view.label.querySelector<HTMLElement>(".quest-mark")!;
+    mark.textContent = kind === QuestMarkerKind.READY ? "?" : kind === QuestMarkerKind.AVAILABLE ? "!" : "";
+    mark.className = `quest-mark${kind === QuestMarkerKind.READY ? " ready" : ""}`;
+  }
+
   /** 在被攻擊者頭上飄出傷害數字。 */
   showCombat(event: CombatEvent): void {
     const target = this.entities.get(event.targetId);
@@ -159,15 +177,17 @@ export class WorldView {
     group.userData.entityId = state.id;
 
     const label = document.createElement("div");
-    const kindClass = { [EntityKind.NPC]: "npc", [EntityKind.ITEM]: "item", [EntityKind.MERCHANT]: "merchant", [EntityKind.PORTAL]: "portal" }[state.kind as number] ?? "player";
+    const kindClass = { [EntityKind.NPC]: "npc", [EntityKind.ITEM]: "item", [EntityKind.MERCHANT]: "merchant", [EntityKind.PORTAL]: "portal", [EntityKind.FRIENDLY]: "friendly" }[state.kind as number] ?? "player";
     label.className = `name-label ${kindClass}${isSelf ? " self" : ""}`;
-    label.innerHTML = `<span class="name"></span><div class="hp"><div class="fill"></div></div>`;
+    label.innerHTML = `<span class="quest-mark"></span><span class="name"></span><div class="hp"><div class="fill"></div></div>`;
     const labelObj = new CSS2DObject(label);
     labelObj.position.set(0, model.labelHeight, 0);
     group.add(labelObj);
     this.scene.add(group);
 
-    return { state, group, target: pos.clone(), labelHeight: model.labelHeight, label, hpFill: label.querySelector(".fill")! };
+    const view = { state, group, target: pos.clone(), labelHeight: model.labelHeight, label, hpFill: label.querySelector<HTMLElement>(".fill")! };
+    this.updateQuestMark(view);
+    return view;
   }
 
   private updateLabel(view: EntityView): void {
@@ -202,8 +222,8 @@ export class WorldView {
         this.handlers.onItemClick(view.state.id);
         return;
       }
-      if (view?.state.kind === EntityKind.MERCHANT) {
-        this.handlers.onMerchantClick(view.state.id);
+      if (view?.state.kind === EntityKind.MERCHANT || view?.state.kind === EntityKind.FRIENDLY) {
+        this.handlers.onTalkClick(view.state.id);
         return;
       }
       if (view?.state.kind === EntityKind.PORTAL) {

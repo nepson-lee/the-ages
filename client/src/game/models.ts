@@ -74,11 +74,32 @@ function shopkeeper(): Model {
   return { object: g, labelHeight: 2.1 };
 }
 
+function elder(): Model {
+  const g = new THREE.Group();
+  g.add(
+    // 灰色長袍
+    mesh(new THREE.ConeGeometry(0.5, 1.4, 12), 0x8d8f99, 0, 0.7, 0),
+    mesh(new THREE.SphereGeometry(0.24, 12, 10), 0xe0c4a8, 0, 1.55, 0),
+    // 白鬍子
+    mesh(new THREE.ConeGeometry(0.16, 0.4, 8), 0xf4f4f0, 0, 1.3, 0.16).rotateX(Math.PI),
+    // 竹杖
+    mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.7), 0xb59a5a, 0.45, 0.85, 0.1),
+  );
+  return { object: g, labelHeight: 2.1 };
+}
+
 function unknown(): Model {
   return { object: mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), 0x8a4fbf, 0, 0.3, 0), labelHeight: 1.2 };
 }
 
-const NPC_MODELS: Record<string, () => Model> = { rabbit, chicken, wolf, "shopkeeper-chen": shopkeeper };
+const NPC_MODELS: Record<string, () => Model> = {
+  rabbit,
+  chicken,
+  wolf,
+  "shopkeeper-chen": shopkeeper,
+  "hunter-li": shopkeeper,
+  "village-elder": elder,
+};
 
 /**
  * 地上的物品：統一用小布袋表示，顏色依物品 id 決定（同一種物品永遠同色）。

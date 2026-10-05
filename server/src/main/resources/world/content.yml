@@ -205,6 +205,8 @@ theages:
     #   loot            掉寶表：每列獨立擲骰，chance 為 0～1 的機率，min/max 為數量
     #   gold-min/max    擊殺後搜出的銅錢（直接進玩家口袋）
     #   shop            有值的 NPC 是商人：不能攻擊，點擊會打開商店
+    #   friendly        友善 NPC（例如發任務的村長）：不能攻擊，點擊是對話
+    #   greeting        對話時說的話
     npc-templates:
       - id: rabbit
         name: 野兔
@@ -347,6 +349,24 @@ theages:
         respawn-seconds: 10
         wander-radius: 0
         shop: hunter-lodge
+        greeting: 林子裡的東西可不像村裡的雞那麼好欺負，小心點。
+
+      - id: village-elder
+        name: 村長
+        keywords: [elder, chief]
+        description: 白髮蒼蒼的老村長，拄著一根磨得發亮的竹杖，眼神卻很銳利。
+        level: 20
+        max-hp: 999
+        attack: 0
+        defense: 0
+        exp: 0
+        speed: 0
+        verb: 敲了敲
+        aggressive: false
+        respawn-seconds: 10
+        wander-radius: 0
+        friendly: true
+        greeting: 年輕人，新手村雖小，要幫忙的事可不少。
 
       - id: shopkeeper-chen
         name: 陳老闆
@@ -363,6 +383,107 @@ theages:
         respawn-seconds: 10
         wander-radius: 0
         shop: general-store
+        greeting: 要買點什麼嗎？止血草、金創藥，出門在外少不了的！
+
+    # 任務：由 friendly 或商人 NPC 發出。
+    #   giver / turn-in   發任務與交任務的 NPC（turn-in 不填 = giver）；交給別人就是送信任務
+    #   level             最低等級
+    #   requires          必須先完成的任務
+    #   objectives        { kill: <NPC 模板>, count: N } 或 { collect: <物品>, count: N }（收集的物品交任務時收走）
+    #   rewards           exp、gold、items: [{ item, count }]
+    #   repeatable        完成後可以再接
+    quests:
+      - id: chicken-trouble
+        name: 雞飛狗跳
+        giver: village-elder
+        description: 村裡的老母雞到處亂跑，把菜園啄得亂七八糟。幫村長教訓牠們一下吧。
+        objectives:
+          - { kill: chicken, count: 3 }
+        rewards: { exp: 40, gold: 15, items: [{ item: herb, count: 2 }] }
+        accept-text: 那幾隻老母雞就在村子西邊，別讓牠們再糟蹋菜園了。
+        complete-text: 好、好！菜園總算可以清靜幾天了。這幾株止血草你收著。
+
+      - id: winter-fur
+        name: 兔毛換冬衣
+        giver: village-elder
+        requires: [chicken-trouble]
+        description: 冬天快到了，村長想替村裡的孩子縫幾件暖和的衣服，需要一些兔毛。
+        objectives:
+          - { collect: rabbit-fur, count: 3 }
+        rewards: { exp: 70, gold: 25, items: [{ item: straw-sandals }] }
+        accept-text: 村外的野兔身上就有。三份兔毛應該夠縫一件了。
+        complete-text: 這下孩子們不怕冷了。這雙草鞋雖然簡陋，走路倒是挺舒服的。
+
+      - id: wolf-menace
+        name: 狼患
+        giver: village-elder
+        level: 3
+        requires: [winter-fur]
+        description: 村外的野狼越來越大膽，已經有村民被咬傷了。
+        objectives:
+          - { kill: wolf, count: 3 }
+        rewards: { exp: 160, gold: 50, items: [{ item: wolf-fang-dagger }] }
+        accept-text: 村子東南邊和北邊的黑松林都有狼。千萬小心，打不過就跑。
+        complete-text: 你是新手村的英雄！這把狼牙匕首是我年輕時用的，送你了。
+
+      - id: letter-to-li
+        name: 給獵人的信
+        giver: village-elder
+        turn-in: hunter-li
+        level: 3
+        requires: [winter-fur]
+        description: 村長有封信要交給住在黑松林入口的獵人老李。
+        rewards: { exp: 60, gold: 10 }
+        accept-text: 從村子北邊的小徑一直走，就能到黑松林。老李就住在林道入口。
+        complete-text: 喔？村長的信啊……林子裡最近不太平，正好需要你這樣的幫手。
+
+      - id: spider-silk-order
+        name: 蛛絲訂單
+        giver: hunter-li
+        requires: [letter-to-li]
+        description: 老李要縫製新的皮甲，需要堅韌的蜘蛛絲。
+        objectives:
+          - { collect: spider-silk, count: 4 }
+        rewards: { exp: 220, gold: 40, items: [{ item: wound-salve, count: 2 }] }
+        accept-text: 毒蜘蛛在林子東西兩邊結網。被螫了記得吃藥。
+        complete-text: 好絲！夠我縫好幾件皮甲了。
+
+      - id: boar-feast
+        name: 山豬肉宴
+        giver: hunter-li
+        level: 4
+        requires: [letter-to-li]
+        description: 山豬把老李的陷阱都拱壞了。順便打點肉回來加菜。
+        objectives:
+          - { kill: boar, count: 3 }
+          - { collect: boar-meat, count: 2 }
+        rewards: { exp: 300, gold: 60 }
+        accept-text: 山豬脾氣暴躁，但只要你不惹牠，牠也不會先動手。
+        complete-text: 今晚有山豬肉吃了！來，這是你應得的。
+
+      - id: black-bear
+        name: 林中霸主
+        giver: hunter-li
+        level: 6
+        requires: [spider-silk-order, boar-feast]
+        description: 林子深處的黑熊已經傷了好幾個獵人。老李希望有人能除掉牠。
+        objectives:
+          - { kill: black-bear, count: 1 }
+        rewards: { exp: 700, gold: 150, items: [{ item: hunter-leather }] }
+        accept-text: 那頭熊就在林子最北邊。找幾個夥伴一起去，別逞強。
+        complete-text: 你真的辦到了……這件獵人皮甲本來是給自己做的，現在它是你的了。
+
+      - id: pelt-trade
+        name: 狼皮收購
+        giver: hunter-li
+        requires: [letter-to-li]
+        repeatable: true
+        description: 老李長期收購狼皮，價錢比賣給商店還好。
+        objectives:
+          - { collect: wolf-pelt, count: 3 }
+        rewards: { exp: 80, gold: 70 }
+        accept-text: 有多少收多少，三張一批。
+        complete-text: 成色不錯，下次再來！
 
     zones:
       - id: newbie-village
@@ -374,8 +495,9 @@ theages:
         exits:
           - { name: 往黑松林的小徑, keywords: [north, n, forest], x: 0, z: -27, to: dark-pine-forest, to-x: 0, to-z: 30 }
         npcs:
-          # 古井旁的雜貨店
+          # 古井旁的雜貨店與村長
           - { template: shopkeeper-chen, x: 3, z: -2 }
+          - { template: village-elder, x: -3, z: 2 }
           - { template: chicken, x: -6, z: 6, count: 3 }
           - { template: rabbit, x: 12, z: -8, count: 4 }
           - { template: rabbit, x: -14, z: -12, count: 3 }

@@ -47,7 +47,10 @@ public final class NpcEntity extends Entity {
 
     @Override
     EntityKind kind() {
-        return template.isMerchant() ? EntityKind.ENTITY_KIND_MERCHANT : EntityKind.ENTITY_KIND_NPC;
+        if (template.isMerchant()) {
+            return EntityKind.ENTITY_KIND_MERCHANT;
+        }
+        return template.friendly() ? EntityKind.ENTITY_KIND_FRIENDLY : EntityKind.ENTITY_KIND_NPC;
     }
 
     @Override

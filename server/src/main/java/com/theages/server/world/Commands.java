@@ -43,7 +43,10 @@ final class Commands {
         Map.entry("shop", "list"),
         Map.entry("enter", "go"),
         Map.entry("pt", "psay"),
-        Map.entry("team", "party"));
+        Map.entry("team", "party"),
+        Map.entry("q", "quest"),
+        Map.entry("quests", "quest"),
+        Map.entry("ask", "talk"));
 
     Commands() {
         register("help", "列出所有指令", (zone, actor, args) -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
@@ -189,6 +192,28 @@ final class Commands {
                 zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想對隊友說什麼？");
             } else {
                 zone.parties().chat(actor.characterId(), args);
+            }
+        });
+
+        register("talk", "和 NPC 說話：talk <名字>（接任務、交任務）", (zone, actor, args) -> {
+            if (args.isEmpty()) {
+                zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "你想和誰說話？");
+                return;
+            }
+            findNpc(zone, actor, args).ifPresentOrElse(npc -> zone.talk(actor, npc),
+                () -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "這裡沒有「" + args + "」。"));
+        });
+
+        register("quest", "任務：quest（日誌）、quest accept/complete/abandon <任務>", (zone, actor, args) -> {
+            String[] parts = args.split("\\s+", 2);
+            String target = parts.length > 1 ? parts[1].strip() : "";
+            switch (parts[0].toLowerCase()) {
+                case "", "list", "log" -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, zone.describeQuests(actor));
+                case "accept" -> withQuest(zone, actor, target, q -> zone.acceptQuest(actor, q));
+                case "complete", "turnin" -> withQuest(zone, actor, target, q -> zone.completeQuest(actor, q));
+                case "abandon" -> withQuest(zone, actor, target, q -> zone.abandonQuest(actor, q));
+                default -> zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM,
+                    "用法：quest、quest accept <任務>、quest complete <任務>、quest abandon <任務>");
             }
         });
 
@@ -345,6 +370,15 @@ final class Commands {
             }
         }
         return zone.portals().stream().filter(p -> p.exit().matches(query)).findFirst();
+    }
+
+    private static void withQuest(Zone zone, PlayerEntity actor, String query,
+                                  java.util.function.Consumer<String> action) {
+        if (query.isEmpty()) {
+            zone.sendText(actor, TextChannel.TEXT_CHANNEL_SYSTEM, "哪一個任務？");
+        } else {
+            action.accept(query);
+        }
     }
 
     /** 找背包裡的物品後執行；找不到就提示。 */

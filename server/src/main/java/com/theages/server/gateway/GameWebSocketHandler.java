@@ -3,6 +3,7 @@ package com.theages.server.gateway;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.theages.protocol.v1.ClientMessage;
 import com.theages.server.character.CharacterItemRepository;
+import com.theages.server.character.CharacterQuestRepository;
 import com.theages.server.character.PlayerCharacter;
 import com.theages.server.character.PlayerCharacterRepository;
 import com.theages.server.world.World;
@@ -33,13 +34,16 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
     private final World world;
     private final PlayerCharacterRepository characters;
     private final CharacterItemRepository items;
+    private final CharacterQuestRepository quests;
     /** 所有區域的線上角色，用來處理同一角色重複登入。 */
     private final Map<Long, WebSocketPlayerConnection> online = new ConcurrentHashMap<>();
 
-    public GameWebSocketHandler(World world, PlayerCharacterRepository characters, CharacterItemRepository items) {
+    public GameWebSocketHandler(World world, PlayerCharacterRepository characters, CharacterItemRepository items,
+                                CharacterQuestRepository quests) {
         this.world = world;
         this.characters = characters;
         this.items = items;
+        this.quests = quests;
     }
 
     @Override
@@ -59,7 +63,8 @@ public class GameWebSocketHandler extends BinaryWebSocketHandler {
         online.put(c.getId(), connection);
         session.getAttributes().put(CONNECTION_ATTR, connection);
         zone.enqueue(new ZoneEvent.Join(connection, c.getId(), c.getName(), c.getPosX(), c.getPosZ(),
-            c.getLevel(), c.getExp(), c.getHp(), c.getGold(), items.loadRecords(c.getId())));
+            c.getLevel(), c.getExp(), c.getHp(), c.getGold(), items.loadRecords(c.getId()),
+            quests.loadRecords(c.getId())));
         log.info("{} 連線進入 {}", username, zone.definition().id());
     }
 

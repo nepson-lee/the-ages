@@ -114,6 +114,29 @@ public final class Inventory {
             .or(() -> matches.stream().findFirst());
     }
 
+    /** 背包裡（未裝備的）某種物品的總數。 */
+    public int count(String templateId) {
+        return entries.stream()
+            .filter(e -> !e.equipped() && e.template().id().equals(templateId))
+            .mapToInt(InventoryEntry::quantity)
+            .sum();
+    }
+
+    /** 從背包（未裝備的）拿走 quantity 個某種物品；呼叫前應先用 {@link #count} 確認數量足夠。 */
+    public void removeCount(String templateId, int quantity) {
+        int left = quantity;
+        for (InventoryEntry e : new ArrayList<>(entries)) {
+            if (left == 0) {
+                break;
+            }
+            if (!e.equipped() && e.template().id().equals(templateId)) {
+                int take = Math.min(left, e.quantity());
+                remove(e, take);
+                left -= take;
+            }
+        }
+    }
+
     public Optional<InventoryEntry> equipped(EquipSlot slot) {
         return entries.stream().filter(e -> e.equipped() && e.template().slot() == slot).findFirst();
     }
