@@ -1,0 +1,33 @@
+@startuml
+!include style.iuml
+top to bottom direction
+skinparam RectangleBackgroundColor #F7F7F7
+
+rectangle "**auth**\n註冊、登入、JWT、登入限流" as auth
+rectangle "**gateway**\nWebSocket 進出口、訊息限流" as gateway
+rectangle "**world**\n區域、tick、實體、戰鬥、NPC、指令" as world
+rectangle "**world.item**\n物品、背包、商店" as item
+rectangle "**world.quest**\n任務" as quest
+rectangle "**world.skill**\n技能" as skill
+rectangle "**world.party**\n組隊（跨區共用）" as party
+rectangle "**character**\n角色資料、非同步存檔" as character
+rectangle "**account**\n帳號" as account
+rectangle "**common**\nTokenBucket" as common
+rectangle "**protocol.v1**\nProtobuf 產生的訊息" as proto
+
+auth --> account
+auth --> character
+auth --> world : 出生設定
+auth --> common
+gateway --> world
+gateway --> character : 載入角色
+gateway --> common
+gateway --> proto
+world --> item
+world --> quest
+world --> skill
+world --> party
+world --> proto
+character ..> world : 實作 CharacterStore
+quest --> item
+@enduml

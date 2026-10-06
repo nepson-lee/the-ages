@@ -1,0 +1,40 @@
+@startuml
+!include style.iuml
+left to right direction
+actor 玩家 as P
+actor "隊友\n（其他玩家）" as M
+actor "遊戲世界\n（區域 tick）" as T
+
+rectangle "時空之門 The Ages" {
+  usecase "註冊／登入" as UC0
+  usecase "**登入並進入遊戲世界**" as UC1 #FFF3C4
+  usecase "移動與觀察\n（點擊地面、look）" as UC2
+  usecase "**戰鬥與擊殺**\n（攻擊、技能、經驗、掉寶）" as UC3 #FFF3C4
+  usecase "**區域傳送**\n（新手村與黑松林之間）" as UC4 #FFF3C4
+  usecase "背包與裝備" as UC5
+  usecase "商店買賣" as UC6
+  usecase "組隊與分配" as UC7
+  usecase "任務（接、交、放棄）" as UC8
+  usecase "學習與施放技能" as UC9
+  usecase "聊天（say、pt）" as UC10
+  usecase "NPC 行為\n（閒晃、主動攻擊、重生）" as UC11
+}
+
+P --> UC0
+P --> UC1
+P --> UC2
+P --> UC3
+P --> UC4
+P --> UC5
+P --> UC6
+P --> UC7
+P --> UC8
+P --> UC9
+P --> UC10
+UC7 <-- M
+UC10 <-- M
+UC11 <-- T
+UC1 ..> UC0 : <<include>>
+UC3 ..> UC7 : <<extend>>\n分經驗
+UC3 ..> UC8 : <<extend>>\n任務進度
+@enduml

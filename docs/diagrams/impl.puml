@@ -1,0 +1,37 @@
+@startuml
+!include style.iuml
+left to right direction
+
+folder "the-ages（Git 儲存庫）" {
+  folder "protocol（Maven 模組）" as PM {
+    file "game.proto\n（唯一的協定來源）" as PROTO
+  }
+  folder "server（Maven 模組）" as SM {
+    file "Java 原始碼\ncom.theages.server.*" as JAVA
+    file "application.yml" as YML
+    file "world/content.yml\n（區域、NPC、物品、商店、\n任務、技能）" as CONTENT
+    file "db/migration\nV1～V6（Flyway）" as MIG
+  }
+  folder "client（npm 專案）" as CM {
+    file "src/game、src/net、src/ui\n（TypeScript）" as TS
+    file "buf.gen.yaml" as BUF
+  }
+  file "pom.xml（父專案）" as POM
+  file "docker-compose.yml" as DC
+}
+
+artifact "the-ages-protocol.jar\n（protobuf-java 產生的類別）" as PJAR
+artifact "the-ages-server.jar\n（Spring Boot 可執行 JAR）" as SJAR
+artifact "client/src/gen/*_pb.ts\n（protoc-gen-es 產生）" as GEN
+artifact "client/dist\n（Vite 打包的靜態檔）" as DIST
+
+PROTO --> PJAR : mvn（protobuf-maven-plugin）
+PROTO --> GEN : npm run gen（buf）
+PJAR --> SJAR : 相依
+JAVA --> SJAR : mvn package
+YML --> SJAR
+CONTENT --> SJAR
+MIG --> SJAR
+TS --> DIST : vite build
+GEN --> DIST
+@enduml

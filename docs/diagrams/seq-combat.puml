@@ -1,0 +1,27 @@
+@startuml
+!include style.iuml
+autonumber
+participant "瀏覽器" as B
+participant "GameWebSocket\nHandler" as GH
+participant "Zone.tick()" as Z
+participant "Combat" as C
+participant "NpcEntity" as N
+participant "PartyService" as PS
+
+B -> GH : Attack(target_id)
+GH -> GH : 頻率限制
+GH -> Z : enqueue(Attack)
+== 每個 tick（每秒 10 次） ==
+Z -> Z : 處理事件\nstartAttack()
+Z -> C : update(tick)
+C -> C : 太遠就追擊
+C -> N : 每秒一回合：\n命中、傷害
+C --> B : CombatEvent
+N -> C : 反擊
+... 數回合後 ...
+C -> Z : onKilled(NPC, 玩家)
+Z -> PS : partyOf(玩家)
+Z -> Z : 分經驗與銅錢\n累計任務進度\n擲骰掉寶
+Z --> B : EntityLeft、文字、\n狀態、任務、地上物品
+note over Z : 存檔不在 tick 中進行，\n交給存檔執行緒非同步寫入
+@enduml

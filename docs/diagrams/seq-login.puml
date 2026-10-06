@@ -1,0 +1,29 @@
+@startuml
+!include style.iuml
+autonumber
+actor 玩家 as P
+participant "瀏覽器" as B
+participant "AuthController" as AC
+participant "LoginThrottle" as LT
+participant "AuthService" as AS
+database "PostgreSQL" as DB
+
+P -> B : 輸入名字與密碼
+B -> AC : POST /api/auth/login
+AC -> LT : acquire(IP)\nlockedFor(帳號)
+alt 超過額度或帳號鎖定
+  AC --> B : 429 + Retry-After
+else 允許
+  AC -> AS : login(名字, 密碼)
+  AS -> DB : 查詢 account
+  AS -> AS : bcrypt 比對\n（帳號不存在也比對假雜湊）
+  alt 密碼正確
+    AS --> AC : JWT（HS256，12 小時）
+    AC -> LT : recordSuccess
+    AC --> B : 200 { token }
+  else 密碼錯誤
+    AC -> LT : recordFailure
+    AC --> B : 400 帳號或密碼錯誤
+  end
+end
+@enduml

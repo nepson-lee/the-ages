@@ -1,0 +1,34 @@
+@startuml
+!include style.iuml
+top to bottom direction
+
+node "瀏覽器" {
+  component "主執行緒\nrequestAnimationFrame（約 60 fps）\n位置內插、繪製、UI" as BR
+}
+
+node "遊戲伺服器 JVM" {
+  component "Tomcat 請求執行緒池\nREST、WebSocket 收訊\n（解碼、驗證、頻率限制）" as TC
+  queue "ZoneEvent 佇列\n（每個區域一個）" as Q
+  component "zone-newbie-village\n單一執行緒，每秒 10 tick" as Z1
+  component "zone-dark-pine-forest\n單一執行緒，每秒 10 tick" as Z2
+  component "PartyService\n（synchronized）" as PS
+  component "character-persistence\n單一執行緒" as CP
+  component "HikariCP 連線池" as POOL
+}
+
+database "PostgreSQL" as DB
+
+BR --> TC : WebSocket 訊息
+TC --> Q : enqueue
+Q --> Z1
+Q --> Z2
+Z1 ..> Q : 換區：Join 排進\n另一個區域
+Z1 --> PS
+Z2 --> PS
+Z1 --> CP : 快照
+Z2 --> CP
+Z2 ..> BR : 送出訊息\n（緩衝、不阻塞）
+TC --> POOL : 登入、載入角色
+CP --> POOL
+POOL --> DB
+@enduml

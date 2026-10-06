@@ -1,0 +1,21 @@
+!pragma layout smetana
+skinparam dpi 150
+skinparam defaultFontName "Microsoft JhengHei"
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam roundCorner 6
+skinparam ArrowColor #333333
+skinparam BorderColor #555555
+skinparam PackageBackgroundColor #F7F7F7
+skinparam ComponentBackgroundColor #FFFFFF
+skinparam NodeBackgroundColor #FFFFFF
+skinparam DatabaseBackgroundColor #FFFFFF
+skinparam UsecaseBackgroundColor #FFFFFF
+skinparam ActorBackgroundColor #FFFFFF
+skinparam NoteBackgroundColor #FFFBE6
+skinparam NoteBorderColor #C9B458
+skinparam ClassBackgroundColor #FFFFFF
+skinparam ClassHeaderBackgroundColor #EEF3F8
+skinparam SequenceLifeLineBorderColor #888888
+skinparam SequenceParticipantBackgroundColor #FFFFFF
+skinparam SequenceGroupBackgroundColor #F3F3F3

@@ -1,0 +1,21 @@
+@startuml
+!include style.iuml
+top to bottom direction
+
+node "玩家電腦" {
+  node "瀏覽器（支援 WebGL）" as BR
+}
+cloud "CDN／靜態檔案伺服器\nclient/dist" as CDN
+node "反向代理（Nginx 或負載平衡器）\nTLS 終止、X-Forwarded-For" as RP
+node "遊戲伺服器" as GS {
+  artifact "the-ages-server.jar（Java 17+）\nREST + WebSocket + 區域" as JAR
+}
+database "PostgreSQL" as PG
+database "Redis（預留）" as RD
+
+BR --> CDN : HTTPS（下載前端）
+BR --> RP : HTTPS /api、WSS /ws
+RP --> JAR : HTTP／WebSocket
+JAR --> PG : JDBC（Flyway 遷移）
+JAR ..> RD : 之後：線上狀態、\n跨節點廣播、限流計數
+@enduml

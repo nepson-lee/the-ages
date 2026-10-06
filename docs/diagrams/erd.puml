@@ -1,0 +1,58 @@
+@startuml
+!include style.iuml
+hide circle
+hide methods
+skinparam linetype ortho
+
+entity "account" as account {
+  * id : BIGINT <<PK>>
+  --
+  * username : VARCHAR(32) <<UNIQUE>>
+  * password_hash : VARCHAR(255)
+  * created_at : TIMESTAMPTZ
+}
+
+entity "player_character" as pc {
+  * id : BIGINT <<PK>>
+  --
+  * account_id : BIGINT <<FK, UNIQUE>>
+  * name : VARCHAR(32) <<UNIQUE>>
+  * zone_id : VARCHAR(64)
+  * pos_x, pos_z : REAL
+  * level, exp : INTEGER
+  * hp : INTEGER（0 = 滿）
+  * mp : INTEGER（-1 = 滿）
+  * gold : INTEGER
+}
+
+entity "character_item" as item {
+  * id : BIGINT <<PK>>
+  --
+  * character_id : BIGINT <<FK>>
+  * template_id : VARCHAR(64)
+  * quantity : INTEGER
+  * equipped : BOOLEAN
+  * sort_order : INTEGER
+}
+
+entity "character_quest" as quest {
+  * id : BIGINT <<PK>>
+  --
+  * character_id : BIGINT <<FK>>
+  * quest_id : VARCHAR(64)
+  * completed : BOOLEAN
+  * progress : VARCHAR(64)
+}
+
+entity "character_skill" as skill {
+  * id : BIGINT <<PK>>
+  --
+  * character_id : BIGINT <<FK>>
+  * skill_id : VARCHAR(64)
+}
+
+account ||--|| pc
+pc ||--o{ item
+pc ||--o{ quest
+pc ||--o{ skill
+@enduml

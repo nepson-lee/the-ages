@@ -1,0 +1,20 @@
+@startuml
+!include style.iuml
+autonumber
+participant "瀏覽器" as B
+participant "JwtHandshake\nInterceptor" as JI
+participant "GameWebSocket\nHandler" as GH
+participant "Zone\n（tick 執行緒）" as Z
+database "PostgreSQL" as DB
+
+B -> JI : WebSocket /ws?token=JWT
+JI -> JI : 驗證 JWT，取出帳號
+JI --> GH : 握手成功
+GH -> DB : 載入角色、背包、\n任務、技能
+GH -> Z : enqueue(Join)
+note right of GH : 同一角色已在線上時，\n送進他目前所在的區域
+Z -> Z : 下一個 tick 處理 Join\n建立 PlayerEntity
+Z --> B : Welcome、完整快照
+Z --> B : 狀態、背包、任務、技能
+B -> B : 依 zone_id 建立場景
+@enduml

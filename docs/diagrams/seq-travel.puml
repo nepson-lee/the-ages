@@ -1,0 +1,26 @@
+@startuml
+!include style.iuml
+autonumber
+actor 玩家 as P
+participant "瀏覽器" as B
+participant "GameWebSocket\nHandler" as GH
+participant "WebSocket\nPlayerConnection" as WC
+participant "新手村 Zone\n（執行緒 A）" as Z1
+participant "黑松林 Zone\n（執行緒 B）" as Z2
+participant "CharacterStore" as CS
+
+P -> B : 點擊出口光柱
+B -> GH : Command("go #id")
+GH -> WC : zone()
+GH -> Z1 : enqueue(CommandText)
+Z1 -> Z1 : 走到出口 2.5 公尺內\n（戰鬥中不能離開）
+Z1 -> Z1 : removePlayer()\n廣播「往……離開了」
+Z1 -> CS : saveAsync(快照，位置 = 目的地)
+Z1 -> Z2 : enqueue(Join：等級、生命、內力、\n銅錢、背包、任務、技能)
+Z1 -> WC : attachZone(黑松林)
+note right of WC : 先排入 Join 再切換路由，\n之後的訊息都排在 Join 後面
+Z2 -> Z2 : 下一個 tick 處理 Join
+Z2 --> B : Welcome（zone_id = dark-pine-forest）\n完整快照
+B -> B : 清空場景，依區域主題重建
+note over Z2 : 換區途中斷線時，Leave 可能送到舊區域；\n每個區域每個 tick 會移除連線已關閉的玩家
+@enduml

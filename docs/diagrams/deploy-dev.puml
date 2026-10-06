@@ -1,0 +1,19 @@
+@startuml
+!include style.iuml
+top to bottom direction
+
+node "開發者電腦" {
+  node "瀏覽器" as BR
+  node "Vite 開發伺服器 :5173" as VITE
+  node "Spring Boot :8080\nthe-ages-server" as SB
+  node "Docker Compose" as DC {
+    database "PostgreSQL 18 :5432" as PG
+    database "Redis 8 :6379（預留）" as RD
+  }
+}
+
+BR --> VITE : HTTP（頁面、模組）
+VITE --> SB : 代理 /api、/ws
+SB --> PG : JDBC
+note right of SB : 沒有 Docker 時可改用\nspring-boot:test-run\n（H2 記憶體資料庫）
+@enduml
